@@ -6,10 +6,10 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-2a78d6.svg)](LICENSE)
 [![CI](https://github.com/harsh040506/professional-markdown-editor/actions/workflows/ci.yml/badge.svg)](https://github.com/harsh040506/professional-markdown-editor/actions/workflows/ci.yml)
-![Runs in your browser](https://img.shields.io/badge/runs%20in-your%20browser-1e754f.svg)
-![No server](https://img.shields.io/badge/server-none-1e754f.svg)
-![Works offline](https://img.shields.io/badge/works-offline-1e754f.svg)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-b56959.svg)](CONTRIBUTING.md)
+![Runs in your Browser](https://img.shields.io/badge/runs%20in-your%20browser-1e754f.svg)
+![No Server](https://img.shields.io/badge/server-none-1e754f.svg)
+![Works Offline](https://img.shields.io/badge/works-offline-1e754f.svg)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-b56959.svg)](CONTRIBUTING.md)
 
 **A WYSIWYG Markdown editor that lives in a browser tab.**<br>
 Math, diagrams and tables as you type. Export to PDF, Word (with real equations) and HTML.<br>
