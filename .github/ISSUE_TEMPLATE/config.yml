@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea to discuss
+    url: https://github.com/harsh040506/professional-markdown-editor/discussions
+    about: Ask how something works, or share how you use the editor.
+  - name: Security problem
+    url: https://github.com/harsh040506/professional-markdown-editor/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.

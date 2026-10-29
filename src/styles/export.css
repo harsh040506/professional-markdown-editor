@@ -1,0 +1,50 @@
+/* Exported documents (PDF and standalone HTML). Builds on tokens.css + doc.css. */
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); }
+.export-page { max-width: calc(672px + 48px); margin: 0 auto; padding: 56px 24px 96px; }
+.export-page.is-wide { max-width: calc(960px + 48px); }
+.doc-body .task-check { cursor: default; }
+.doc-body .details-toggle { cursor: default; }
+html[data-interactive] .doc-body .details-toggle { cursor: pointer; }
+html[data-interactive] .doc-body .details-summary { cursor: pointer; }
+/* Diagrams are drawn once when the file is exported, in a light and a dark variant; the page shows the
+   one that matches its theme (print and PDF always use light). */
+.doc-body .diagram .d-dark { display: none; }
+:root[data-theme="dark"] .doc-body .diagram .d-light { display: none; }
+:root[data-theme="dark"] .doc-body .diagram .d-dark { display: block; }
+.doc-body .diagram > div { max-width: 100%; }
+
+/* ---------- print / PDF ---------- */
+@media print {
+  :root, :root[data-theme] { --paper: #ffffff; --pre-bg: #f5f4ef; --code-bg: #f1efe8; --tbl-head: #f5f3ed; }
+  html, body { background: #fff; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .export-page, .export-page.is-wide { max-width: none; margin: 0; padding: 0; }
+  .doc-body { font-size: 10.5pt; line-height: 1.5; orphans: 3; widows: 3; }
+  .doc-body[data-text-font="serif"] { font-size: 11pt; }
+  .doc-body[data-text-font="mono"] { font-size: 9.75pt; }
+  .doc-body h1 { font-size: 22pt; }
+  .doc-body h2 { font-size: 15pt; }
+  .doc-body h3 { font-size: 12.5pt; }
+  .doc-body h4 { font-size: 10.5pt; }
+  .doc-body :is(h5, h6) { font-size: 9.5pt; }
+  .doc-body pre { font-size: 8.6pt; line-height: 1.5; }
+  .doc-body table { font-size: 9.25pt; }
+  html[data-wrap-code] .doc-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .doc-body pre, .doc-body .tableWrapper, .doc-body .math-block, .doc-body .diagram { overflow: visible; }
+  .doc-body .tableWrapper { overflow: visible; }
+  .doc-body table { width: auto; max-width: 100%; }
+
+  /* keep headings with what follows them, never split small things */
+  .doc-body :is(h1, h2, h3, h4, h5, h6) { break-after: avoid-page; break-inside: avoid; page-break-after: avoid; }
+  .doc-body :is(h1, h2, h3, h4, h5, h6) + * { break-before: avoid-page; }
+  .doc-body :is(.math-block, .diagram, img, tr, .details-summary, li.task-item, figure) { break-inside: avoid; page-break-inside: avoid; }
+  .doc-body .code-block { break-inside: auto; }
+  .doc-body .code-block.is-short, .doc-body blockquote.is-short, .doc-body li { break-inside: avoid; }
+  .doc-body thead { display: table-header-group; }
+  .doc-body .code-block > .code-label { top: 6px; right: 7px; font-size: 7.5pt; line-height: 15px; }
+  .doc-body .code-block > .code-label + pre { padding-top: 26px; }
+  .doc-body a { color: var(--link); }
+  .doc-body .details { break-inside: auto; }
+  .doc-body .details[data-open="false"] { break-inside: avoid; }
+}

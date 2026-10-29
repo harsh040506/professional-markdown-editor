@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Professional Markdown Editor</title>
+  <meta name="description" content="A WYSIWYG Markdown editor that runs entirely in your browser. Math, diagrams, tables, and export to PDF, Word and HTML. No account, no server, no tracking.">
+  <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="%SITE_URL%">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Professional Markdown Editor">
+  <meta property="og:description" content="Write Markdown the way it will look. Math, diagrams, and PDF / Word / HTML export, all in your browser.">
+  <meta property="og:url" content="%SITE_URL%">
+  <meta property="og:image" content="%OG_IMAGE%">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="%APP_CSS%">
+  <!-- sets the theme before first paint so there is no flash; a separate file keeps the CSP free of 'unsafe-inline' scripts -->
+  <script src="theme-init.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header id="toolbar" class="toolbar" role="toolbar" aria-label="Editor"></header>
+    <main id="scroller" class="scroller">
+      <div id="page" class="page"><div id="editor"></div></div>
+    </main>
+  </div>
+  <div id="word-count" class="word-count" data-tip-side="top"></div>
+  <div id="layer"></div>
+  <noscript><p style="font:16px system-ui;padding:2rem">Professional Markdown Editor needs JavaScript. It runs entirely in your browser; nothing is sent anywhere.</p></noscript>
+  <script type="module" src="%APP_JS%"></script>
+</body>
+</html>

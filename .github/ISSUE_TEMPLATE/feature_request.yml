@@ -1,0 +1,26 @@
+name: Feature request
+description: An idea that would make the editor better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the situation first; the solution can come after.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do today instead?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Fit
+      description: The editor aims to stay a fast, private, no-server Markdown editor.
+      options:
+        - label: It works without an account or a server

@@ -1,0 +1,19 @@
+# dependencies and build output
+node_modules/
+dist/
+dist-tmp/
+
+# local scratch space and logs
+.scratch/
+*.log
+.DS_Store
+Thumbs.db
+
+# Vercel local state
+.vercel/
+
+# local settings
+.env
+.env.*
+!.env.example
+

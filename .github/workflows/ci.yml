@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit tests (round-trip, links, export output)
+        run: npm test
+      - name: Third-party notices are up to date
+        run: node scripts/notices.mjs --check
+      - name: Build
+        run: npm run build
+      - name: End-to-end tests in Chrome
+        # ubuntu-latest ships Google Chrome; the tests find it, or use CHROME_PATH
+        run: npm run test:e2e

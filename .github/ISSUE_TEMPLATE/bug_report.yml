@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A document that shows the problem helps a lot. Please remove anything private from it first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: markdown
+    attributes:
+      label: Markdown that shows it
+      description: The smallest piece of Markdown that reproduces the problem, if it is about a document.
+      render: markdown
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options: [Editing, Saving / library, Open folder, Version history, PDF export, Word export, HTML export, Math, Diagrams, Offline / install, Other]
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 131, Firefox 133, Safari 18 …
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, macOS 15, Android 15 …

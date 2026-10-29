@@ -1,0 +1,68 @@
+{
+  "name": "professional-markdown-editor",
+  "version": "1.0.0",
+  "description": "A WYSIWYG Markdown editor that runs entirely in your browser: math, diagrams, and PDF / Word / HTML export. No server, no account, no tracking.",
+  "license": "MIT",
+  "author": "Harsh Chhajer (https://github.com/harsh040506)",
+  "homepage": "https://professional-markdown-editor.vercel.app",
+  "repository": { "type": "git", "url": "git+https://github.com/harsh040506/professional-markdown-editor.git" },
+  "bugs": { "url": "https://github.com/harsh040506/professional-markdown-editor/issues" },
+  "keywords": [
+    "markdown",
+    "markdown-editor",
+    "wysiwyg",
+    "prosemirror",
+    "katex",
+    "mermaid",
+    "docx",
+    "pdf",
+    "pwa",
+    "local-first"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "node scripts/build.mjs --watch",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/serve.mjs",
+    "test": "node test/roundtrip.mjs && node test/paths.mjs && node test/export.mjs",
+    "test:e2e": "node test/e2e.mjs",
+    "notices": "node scripts/notices.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/newsreader": "^5.3.0",
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "docx": "^9.15.0",
+    "highlight.js": "^11.12.0",
+    "katex": "^0.19.1",
+    "markdown-it": "^15.0.3",
+    "mathml2omml": "^0.5.0",
+    "mermaid": "^12.2.0",
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-dropcursor": "^1.8.4",
+    "prosemirror-gapcursor": "^1.4.1",
+    "prosemirror-history": "^1.5.1",
+    "prosemirror-inputrules": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-markdown": "^1.13.9",
+    "prosemirror-model": "^1.25.12",
+    "prosemirror-schema-list": "^1.5.1",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-tables": "^1.8.5",
+    "prosemirror-transform": "^1.12.4",
+    "prosemirror-view": "^1.42.8"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "gifenc": "^1.0.3",
+    "jszip": "^3.10.2",
+    "pngjs": "^7.0.0",
+    "puppeteer-core": "^25.16.0"
+  }
+}
