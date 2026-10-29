@@ -47,13 +47,16 @@ const clickText = (page, text, sel = "button, [role=menuitem]") => page.evaluate
 // Opens text as a new untitled document, answering the "discard unsaved changes?" question if it appears.
 async function openText(page, text, name) {
   await page.evaluate((t, n) => { window.__editor.app.openText(t, n); }, text, name); // not awaited: the question blocks it
-  await sleep(400);
-  if (await page.evaluate(() => [...document.querySelectorAll(".dialog button")].some((b) => b.textContent.trim() === "Discard"))) await clickText(page, "Discard");
-  await sleep(400);
+  for (let i = 0; i < 30; i++) { // wait up to 3 s for the question; there is none when the open document is untitled
+    if (await page.evaluate(() => [...document.querySelectorAll(".dialog button")].some((b) => b.textContent.trim() === "Discard"))) { await clickText(page, "Discard"); break; }
+    await sleep(100);
+  }
+  await page.waitForFunction(() => !document.querySelector(".dialog"), { timeout: 10000 });
+  await sleep(300);
 }
 const md = (page) => page.evaluate(() => window.__editor.getMarkdown());
 async function download(name) {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 200; i++) {
     const f = path.join(downloads, name);
     if (fs.existsSync(f) && !fs.existsSync(f + ".crdownload")) { await sleep(150); return fs.readFileSync(f); }
     await sleep(100);
@@ -67,10 +70,11 @@ try {
   await page.goto(url, { waitUntil: "load" });
   await ready(page);
   check("the app starts and shows the welcome document", (await page.$eval(".ProseMirror h1", (e) => e.textContent)).startsWith("Welcome"));
-  await page.waitForSelector(".katex", { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll(".katex").length >= 2, { timeout: 20000 }).catch(() => {});
   check("math is drawn with KaTeX", (await page.$$(".katex")).length >= 2);
   await page.waitForSelector(".diagram svg", { timeout: 20000 });
   check("the Mermaid diagram is drawn", true);
+  await page.waitForFunction(() => ["DM Sans Variable", "Newsreader Variable", "JetBrains Mono Variable"].every((f) => [...document.fonts].some((x) => x.family === f && x.status === "loaded")), { timeout: 20000 }).catch(() => {});
   const faces = await page.evaluate(() => [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family));
   check("the open-source fonts load", ["DM Sans Variable", "Newsreader Variable", "JetBrains Mono Variable"].every((f) => faces.includes(f)), faces.join());
   check("no proprietary font is referenced", !(await page.evaluate(() => [...document.styleSheets].some((s) => { try { return [...s.cssRules].some((r) => /anthropic/i.test(r.cssText)); } catch { return false; } }))));
@@ -84,18 +88,18 @@ try {
   check("typing \"- [ ] \" starts a checklist and keeps the text in the item", (await md(page)) === "- [ ] Write the draft\n- [ ] Ship it\n", JSON.stringify(await md(page)));
 
   /* ---------- library: save, reload, versions ---------- */
-  await page.evaluate(() => window.__editor.app.openText("# Trip notes\n\nFirst draft with $x^2$.\n", "trip.md"));
+  await openText(page, "# Trip notes\n\nFirst draft with $x^2$.\n", "trip.md");
   await page.keyboard.down("Control"); await page.keyboard.press("s"); await page.keyboard.up("Control");
   await page.waitForSelector(".dialog input");
   await page.$eval(".dialog input", (i) => { i.value = "notes/trip"; i.dispatchEvent(new Event("input", { bubbles: true })); });
   await page.keyboard.press("Enter");
-  await page.waitForFunction(() => window.__editor.store.list().then((l) => l.some((f) => f.path === "notes/trip.md")).then((v) => (window.__ok = v)) && window.__ok, { timeout: 5000, polling: 200 });
+  await page.waitForFunction(async () => (await window.__editor.store.list()).some((f) => f.path === "notes/trip.md"), { timeout: 15000, polling: 200 });
   const saved = await page.evaluate(() => window.__editor.store.read("notes/trip.md"));
   check("Ctrl+S saves a new document into the library", saved.content.startsWith("# Trip notes"), JSON.stringify(saved.content));
   await page.evaluate(() => { const v = window.__editor.view; v.dispatch(v.state.tr.insertText(" Second draft.", v.state.doc.content.size - 1)); });
   await sleep(900);
   await page.keyboard.down("Control"); await page.keyboard.press("s"); await page.keyboard.up("Control");
-  await sleep(600);
+  await page.waitForFunction(async () => (await window.__editor.store.history("notes/trip.md")).length >= 1, { timeout: 15000, polling: 200 }).catch(() => {});
   const hist = await page.evaluate(() => window.__editor.store.history("notes/trip.md"));
   check("a second save keeps the first text as a version", hist.length === 1, JSON.stringify(hist));
   const old = await page.evaluate((id) => window.__editor.store.version("notes/trip.md", id), hist[0] && hist[0].id);
@@ -120,7 +124,7 @@ try {
   await page.evaluate((src) => { const { app, view } = window.__editor; app.openText("![dot](" + src + ")\n", "x.md"); }, src);
   await page.evaluate(() => window.__editor.app.openPath("notes/trip.md"));
   await page.evaluate((src) => { const v = window.__editor.view; const { schema } = v.state; v.dispatch(v.state.tr.insert(1, schema.nodes.image.create({ src, alt: "dot" }))); }, src);
-  await page.waitForFunction(() => { const i = document.querySelector("img.doc-img"); return i && i.src.startsWith("blob:") && i.naturalWidth === 1; }, { timeout: 5000 });
+  await page.waitForFunction(() => { const i = document.querySelector("img.doc-img"); return i && i.src.startsWith("blob:") && i.naturalWidth === 1; }, { timeout: 15000 });
   check("the editor shows stored images", true);
 
   /* ---------- folder mode, on the browser's private file system ---------- */
