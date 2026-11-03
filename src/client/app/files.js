@@ -6,8 +6,8 @@
  * (a folder's files are never deleted from here).
  * The footer buttons switch between the library, a folder on this computer, and a single file from disk.
  */
-import { h, svg } from "../ui/dom.js";
-import { dialog, toast, confirmDialog } from "../ui/overlay.js";
+import { h, svg, load, save } from "../ui/dom.js";
+import { dialog, toast, confirmDialog, segmented } from "../ui/overlay.js";
 import { store } from "../storage/store.js";
 
 // 1536 -> "1.5 KB".
@@ -26,8 +26,11 @@ export async function openFileBrowser(app) {
   const list = h("div", { class: "file-list", role: "listbox", tabindex: "0", "aria-label": "Documents" }, h("div", { class: "file-empty" }, "Loading…"));
   const where = h("span", null, inFolder ? "Folder: " + info.rootName : "Saved in this browser only. Nothing is uploaded.");
   const usage = h("span", { class: "file-usage" });
+  // Sort order, remembered across visits: by name (folders grouped) or most recently changed first.
+  let sort = load("files-sort", "name") === "recent" ? "recent" : "name";
+  const sorter = segmented([{ value: "name", label: "Name" }, { value: "recent", label: "Recent" }], sort, (v) => { sort = v; save("files-sort", v); active = 0; render(); }, { label: "Sort by", small: true });
   const body = h("div", { class: "file-browser" },
-    h("div", { class: "file-search" }, svg("Search", 16), search),
+    h("div", { class: "file-search-row" }, h("div", { class: "file-search" }, svg("Search", 16), search), sorter.el),
     list,
     h("div", { class: "file-root" }, svg(inFolder ? "Folder" : "File", 14), where, usage));
 
@@ -39,13 +42,30 @@ export async function openFileBrowser(app) {
   actions.push({ label: "Open file from computer…", icon: "Import", run: go(() => app.openLocalFile()) });
   const d = dialog({ title: "Open", body, width: 600, className: "dialog-files", actions });
 
-  let files = [], shown = [], active = 0;
-  try { files = await store.list(); } catch (e) { list.replaceChildren(h("div", { class: "file-empty" }, "Could not list documents: " + e.message)); return; }
+  let files = [], shown = [], active = 0, loaded = false;
+  // Lists the documents; on failure (folder permission withdrawn, storage unavailable) says why and offers
+  // to try again, instead of leaving an empty dialog.
+  async function loadFiles() {
+    list.replaceChildren(h("div", { class: "file-empty" }, "Loading…"));
+    try { files = await store.list(); loaded = true; }
+    catch (e) {
+      const retry = h("button", { class: "btn btn-ghost btn-sm", type: "button" }, "Try again");
+      retry.addEventListener("click", loadFiles);
+      list.replaceChildren(h("div", { class: "file-empty" }, h("div", null, "Could not list documents: " + e.message), h("div", { style: { marginTop: "10px" } }, retry)));
+      return;
+    }
+    render();
+  }
   store.usage().then((u) => { if (u && !inFolder) usage.textContent = fmtSize(u.used) + " used"; });
 
   function render() {
+    if (!loaded) return;
     const q = search.value.trim().toLowerCase();
-    shown = files.filter((f) => !q || f.path.toLowerCase().includes(q));
+    // every word must appear somewhere in the path, in any order ("week notes" finds "notes/week1.md")
+    const words = q.split(/\s+/).filter(Boolean);
+    shown = files.filter((f) => { const p = f.path.toLowerCase(); return words.every((w) => p.includes(w)); });
+    if (sort === "recent") shown.sort((a, b) => b.mtime - a.mtime);
+    where.textContent = (inFolder ? "Folder: " + info.rootName : "Saved in this browser only. Nothing is uploaded.") + " · " + files.length + (files.length === 1 ? " document" : " documents");
     list.textContent = "";
     if (!shown.length) {
       list.appendChild(h("div", { class: "file-empty" }, q ? "No documents match “" + search.value + "”"
@@ -80,9 +100,24 @@ export async function openFileBrowser(app) {
   }
   function choose(f) { d.close(); app.openPath(f.path); }
   async function remove(f) {
-    const ok = await confirmDialog({ title: "Delete document?", message: "“" + f.path + "” and its saved versions will be removed from this browser. This cannot be undone.", confirm: "Delete", danger: true });
+    const ok = await confirmDialog({ title: "Delete document?", message: "“" + f.path + "” and its saved versions will be removed from this browser. You can undo right after, but not once you leave this page.", confirm: "Delete", danger: true });
     if (!ok) return;
-    try { await store.remove(f.path); files = files.filter((x) => x.path !== f.path); app.onFileRemoved && app.onFileRemoved(f.path); render(); }
+    try {
+      // keep the text so the deletion can be undone from the toast (the version history cannot be brought back)
+      const { content } = await store.read(f.path);
+      await store.remove(f.path);
+      files = files.filter((x) => x.path !== f.path);
+      app.onFileRemoved && app.onFileRemoved(f.path);
+      render();
+      toast("Deleted “" + f.path + "”.", { timeout: 10000, action: { label: "Undo", run: async () => {
+        try {
+          const r = await store.write(f.path, content, null);
+          files = [...files, { path: f.path, size: f.size, mtime: r.mtime }].sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: "base" }));
+          if (list.isConnected) render();
+          toast("Restored “" + f.path + "”.", { kind: "success" });
+        } catch (e) { toast("Could not restore: " + e.message, { kind: "error", timeout: 6000 }); }
+      } } });
+    }
     catch (e) { toast("Could not delete: " + e.message, { kind: "error" }); }
   }
   search.addEventListener("input", () => { active = 0; render(); });
@@ -91,5 +126,5 @@ export async function openFileBrowser(app) {
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(0, active - 1)); }
     else if (e.key === "Enter" && shown[active]) { e.preventDefault(); choose(shown[active]); }
   });
-  render();
+  await loadFiles();
 }

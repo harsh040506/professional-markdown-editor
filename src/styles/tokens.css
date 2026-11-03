@@ -1,6 +1,6 @@
 /* Design tokens. The three font families are open source (SIL Open Font License) and ship with the app
    (public fonts/ in dist, written by scripts/build.mjs). To use other fonts, change these three
-   variables and the FONTS list in scripts/build.mjs. */
+   variables and the FONTS list in src/export/fonts.js (which the build and the exporters read). */
 :root {
   --font-sans: "DM Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-serif: "Newsreader Variable", ui-serif, Georgia, "Times New Roman", serif;

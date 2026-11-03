@@ -16,11 +16,11 @@ npm run dev        # http://127.0.0.1:4317, rebuilds on every change
 ## Before you open a pull request
 
 ```bash
-npm test           # round-trip, link safety, export output (a few seconds)
+npm test           # round-trip, link safety, <details> repair, editing commands, export output (a few seconds)
 npm run test:e2e   # builds the site and drives it in Chrome, Edge or Chromium
 ```
 
-`test:e2e` needs a Chromium-based browser; it finds an installed one, or set `CHROME_PATH`. It checks start-up, saving, version history, folder mode, the three exports and offline use, and fails on any console error.
+`test:e2e` needs a Chromium-based browser; it finds an installed one, or set `CHROME_PATH`. It checks start-up, typing shortcuts, find and replace, saving, version history, folder mode, the three exports and offline use, and fails on any console error.
 
 If you change how Markdown is read or written, add a file that exercises it to `test/fixtures/`. `npm run test:roundtrip` requires every fixture to survive open, save, open, save without changing.
 

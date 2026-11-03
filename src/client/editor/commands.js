@@ -415,6 +415,55 @@ export function linkRange(state, pos) {
   return null;
 }
 
+/* ---------- moving blocks ---------- */
+// Containers whose children can be reordered freely (a list item's first paragraph cannot, so inside a
+// list the item itself moves).
+const MOVABLE_IN = new Set(["doc", "blockquote", "details_content"]);
+
+/**
+ * Alt-ArrowUp / Alt-ArrowDown: swaps the block holding the selection with its neighbour, keeping the
+ * selection on the moved text. The block is the innermost list item, or else the innermost block that
+ * sits directly in the document, a quote or a section body (a table or section moves as a whole). A
+ * selection that spans several such blocks moves their common container. One undo step; false at the
+ * edge of the container, so nothing happens rather than the block jumping out of its list or quote.
+ * @param {-1|1} dir
+ */
+export function moveBlock(dir) {
+  return (state, dispatch) => {
+    const sel = state.selection, { $from, $to } = sel;
+    let parent, index, start;
+    if (sel instanceof NodeSelection && sel.node.isBlock) {
+      parent = $from.parent; index = $from.index(); start = $from.pos;
+    } else {
+      for (let d = $from.depth; d >= 1; d--) {
+        const node = $from.node(d);
+        const isItem = node.type === N.list_item || node.type === N.task_item;
+        if (!isItem && !MOVABLE_IN.has($from.node(d - 1).type.name)) continue;
+        if ($to.depth < d || $to.before(d) !== $from.before(d)) continue; // selection leaves this block
+        parent = $from.node(d - 1); index = $from.index(d - 1); start = $from.before(d);
+        break;
+      }
+    }
+    if (!parent) return false;
+    const target = index + dir;
+    if (target < 0 || target >= parent.childCount) return false;
+    if (dispatch) {
+      const node = parent.child(index), sib = parent.child(target);
+      const tr = state.tr;
+      let delta;
+      if (dir < 0) { tr.replaceWith(start - sib.nodeSize, start + node.nodeSize, [node, sib]); delta = -sib.nodeSize; }
+      else { tr.replaceWith(start, start + node.nodeSize + sib.nodeSize, [sib, node]); delta = sib.nodeSize; }
+      // the selection moves with its block: same JSON, shifted (text, node, cell and gap selections alike)
+      const json = sel.toJSON();
+      for (const k of ["anchor", "head", "pos"]) if (typeof json[k] === "number") json[k] += delta;
+      try { tr.setSelection(Selection.fromJSON(tr.doc, json)); }
+      catch { tr.setSelection(Selection.near(tr.doc.resolve(Math.min(tr.doc.content.size, Math.max(0, sel.from + delta))))); }
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
 /* ---------- keys ---------- */
 // List item commands that work for both normal and checklist items.
 export const splitItem = chainCommands(splitListItem(N.list_item), splitListItem(N.task_item));

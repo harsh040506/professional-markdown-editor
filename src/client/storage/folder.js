@@ -26,6 +26,10 @@ export class FolderBackend {
     this.handle = handle;
     this.id = id;
     this.rootName = handle.name || "Folder";
+    // The text of each file as this tab last read or wrote it. A change by another program is noticed by
+    // its modification time, but times can be coarse (or equal, for two writes in the same instant), so
+    // the content is compared too before a save overwrites the file.
+    this.known = new Map();
   }
 
   // Makes sure the browser lets us write to the folder. After a reload the permission has to be granted
@@ -72,7 +76,9 @@ export class FolderBackend {
     try {
       const f = await (await this.fileHandle(p)).getFile();
       if (f.size > MAX_FILE) throw fail(413, "The file is too large to open (over 50 MB)");
-      return { path: p, content: await f.text(), mtime: f.lastModified };
+      const content = await f.text();
+      this.known.set(p, content);
+      return { path: p, content, mtime: f.lastModified };
     } catch (e) { throw friendly(e); }
   }
 
@@ -89,6 +95,7 @@ export class FolderBackend {
           if (Math.abs(f.lastModified - baseMtime) > 1) throw fail(409, "The file changed on disk");
         }
         previous = await f.text();
+        if (!force && this.known.has(p) && this.known.get(p) !== previous) throw fail(409, "The file changed on disk");
       } catch (e) { if (e.status) throw e; /* a new file */ }
       if (previous != null && previous !== content) {
         // a failure to keep the version must not block the save
@@ -97,6 +104,7 @@ export class FolderBackend {
       const w = await (await this.fileHandle(p, true)).createWritable();
       await w.write(content);
       await w.close(); // the file is replaced only now, so a crash never leaves half a document
+      this.known.set(p, content);
       const f = await (await this.fileHandle(p)).getFile();
       return { path: p, mtime: f.lastModified };
     } catch (e) { throw friendly(e); }
@@ -106,6 +114,7 @@ export class FolderBackend {
     await this.ensurePermission();
     const d = await this.dir(dirOf(path));
     await d.removeEntry(baseOf(path));
+    this.known.delete(path);
     await run(["versions"], "readwrite", (v) => dropVersions(v, SCOPE(this.id, path)));
   }
 

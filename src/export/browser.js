@@ -138,12 +138,40 @@ async function fetchRemote(src) {
   catch { return null; } finally { clearTimeout(timer); }
 }
 
+// A data: URL as a Blob, decoded here: the app's Content-Security-Policy allows fetch() only for this site
+// and https:, so fetching a data: URL (an image pasted into an untitled document) would be refused.
+function dataUrlBlob(src) {
+  const m = /^data:([^,;]*)((?:;[^,;]*)*),([\s\S]*)$/i.exec(src);
+  if (!m) return null;
+  try {
+    const body = /;base64/i.test(m[2]) ? Uint8Array.from(atob(m[3].replace(/\s+/g, "")), (c) => c.charCodeAt(0)) : decodeURIComponent(m[3]);
+    return new Blob([body], { type: m[1] || "application/octet-stream" });
+  } catch { return null; }
+}
+// A blob: URL (not fetchable under the CSP either) redrawn through an <img>, which img-src does allow.
+async function objectUrlBlob(src) {
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth || 1; c.height = img.naturalHeight || 1;
+    c.getContext("2d").drawImage(img, 0, 0);
+    return await new Promise((res) => c.toBlob(res, "image/png"));
+  } catch { return null; }
+}
+// The bytes of an image the document points to, wherever it lives; null when it cannot be read.
+function imageBlob(src, docPath) {
+  if (/^data:/i.test(src)) return dataUrlBlob(src);
+  if (/^blob:/i.test(src)) return objectUrlBlob(src);
+  return isDirectSrc(src) ? fetchRemote(src) : loadLocalImage(src, docPath);
+}
+
 export async function exportDocx({ markdown, title, docPath, options = {} }) {
   const tokens = parse(markdown);
   const srcs = imageSources(tokens);
   const images = new Map();
   await Promise.all(srcs.map(async (src) => {
-    const blob = isDirectSrc(src) ? await fetchRemote(src) : await loadLocalImage(src, docPath);
+    const blob = await imageBlob(src, docPath);
     images.set(src, blob ? await decodeImage(blob) : null);
   }));
   const drawn = await drawDiagrams(diagramSources(tokens));

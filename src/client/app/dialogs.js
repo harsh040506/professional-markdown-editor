@@ -95,7 +95,7 @@ function readAsDataURL(file) {
  * @returns {Promise<{src: string, alt: string}>} alt text is the file name without extension
  */
 export async function imageFromFile(file, docPath) {
-  const alt = file.name.replace(/.[^.]+$/, "").replace(/[-_]+/g, " ");
+  const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
   if (docPath) {
     try {
       const src = await store.saveAsset(docPath, file.name, file);

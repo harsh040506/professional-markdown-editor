@@ -28,22 +28,31 @@ import { resolveSrc } from "../app/assets.js";
 
 /* ---------- code blocks: language pill, copy, wrap, mermaid preview ---------- */
 // Mermaid is large (~2 MB), so it is loaded only when the first diagram is shown, and once: every
-// diagram shares the promise. The theme is fixed when it loads (dark or neutral, from the page theme).
-let mermaidLoader = null;
+// diagram shares the promise. A failed load (offline before the first use) is forgotten so the next
+// diagram tries again. The theme (dark or neutral) follows the page theme: it is set again whenever the
+// page theme has changed since the last render, and redrawDiagrams() asks every diagram to redraw.
+let mermaidLoader = null, mermaidTheme = null;
 export function loadMermaid() {
-  if (!mermaidLoader) mermaidLoader = import("mermaid").then((m) => {
-    const mermaid = m.default;
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: document.documentElement.dataset.theme === "dark" ? "dark" : "neutral", fontFamily: "inherit" });
+  if (!mermaidLoader) mermaidLoader = import("mermaid").then((m) => m.default).catch((e) => { mermaidLoader = null; throw e; });
+  return mermaidLoader.then((mermaid) => {
+    const theme = document.documentElement.dataset.theme === "dark" ? "dark" : "neutral";
+    if (theme !== mermaidTheme) {
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme, fontFamily: "inherit" });
+      mermaidTheme = theme;
+    }
     return mermaid;
   });
-  return mermaidLoader;
 }
+// Called by the shell after the theme changes; every Mermaid code block listens for it.
+export function redrawDiagrams() { window.dispatchEvent(new Event("mde:redraw-diagrams")); }
 // Renders Mermaid source to SVG markup. Each render needs a unique element id. On a syntax error
 // Mermaid leaves a temporary error element ("d" + id) in the page, which is removed here.
 // Returns {svg} or {error: first line of the message}; never throws.
 let diagramSeq = 0;
 export async function renderMermaid(code) {
-  const mermaid = await loadMermaid();
+  let mermaid;
+  try { mermaid = await loadMermaid(); }
+  catch { return { error: "The diagram renderer could not be loaded. Check your connection; diagrams work offline after they have been shown once." }; }
   const id = "mmd" + ++diagramSeq;
   try { const { svg: out } = await mermaid.render(id, code); return { svg: out }; }
   catch (e) { document.getElementById("d" + id)?.remove(); return { error: String(e && e.message || e).split("\n")[0] }; }
@@ -86,9 +95,13 @@ export class CodeBlockView {
     this.diagram = h("div", { class: "diagram", contenteditable: "false", hidden: true });
     this.diagram.addEventListener("dblclick", () => this.setMode("code"));
     this.dom.append(this.head, this.pre, this.diagram);
+    // a theme change redraws the diagram in the new colours
+    this.onRedraw = () => { this.renderedCode = null; if (this.mode === "preview" && this.isMermaid()) this.renderDiagram(); };
+    window.addEventListener("mde:redraw-diagrams", this.onRedraw);
     this.sync();
     if (this.isMermaid()) this.setMode("preview");
   }
+  destroy() { window.removeEventListener("mde:redraw-diagrams", this.onRedraw); this.renderedCode = undefined; }
   // Whether this block's language is Mermaid (aliases normalised).
   isMermaid() { return normalizeLang(this.node.attrs.language) === "mermaid"; }
   // Refreshes the language label ("auto (Python)" when detected), the preview button and the diagram.

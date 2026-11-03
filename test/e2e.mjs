@@ -86,6 +86,29 @@ try {
   await page.keyboard.press("Enter");
   await page.keyboard.type("Ship it", { delay: 15 });
   check("typing \"- [ ] \" starts a checklist and keeps the text in the item", (await md(page)) === "- [ ] Write the draft\n- [ ] Ship it\n", JSON.stringify(await md(page)));
+  await page.keyboard.down("Alt"); await page.keyboard.press("ArrowUp"); await page.keyboard.up("Alt");
+  check("Alt+ArrowUp moves the item up", (await md(page)) === "- [ ] Ship it\n- [ ] Write the draft\n", JSON.stringify(await md(page)));
+
+  /* ---------- find and replace ---------- */
+  await openText(page, "alpha beta alpha\n\nAlpha in **bold**\n", "find.md");
+  await page.evaluate(() => window.__editor.view.focus());
+  await page.keyboard.down("Control"); await page.keyboard.press("f"); await page.keyboard.up("Control");
+  await page.waitForSelector(".find-panel:not([hidden]) .find-input");
+  await page.keyboard.type("alpha");
+  await page.waitForFunction(() => document.querySelector(".find-count").textContent.includes("3"), { timeout: 5000 }).catch(() => {});
+  check("Ctrl+F finds every match", (await page.$eval(".find-count", (e) => e.textContent)) === "1 of 3", await page.$eval(".find-count", (e) => e.textContent));
+  check("matches are highlighted in the page", (await page.$$(".ProseMirror .find-match")).length >= 3);
+  await page.keyboard.press("Enter");
+  check("Enter moves to the next match", (await page.$eval(".find-count", (e) => e.textContent)) === "2 of 3");
+  await page.keyboard.down("Control"); await page.keyboard.press("h"); await page.keyboard.up("Control");
+  await page.keyboard.type("omega");
+  await page.keyboard.down("Control"); await page.keyboard.press("Enter"); await page.keyboard.up("Control");
+  check("Replace all replaces every match in one step", (await md(page)) === "omega beta omega\n\nomega in **bold**\n", JSON.stringify(await md(page)));
+  await page.keyboard.press("Escape");
+  check("Escape closes the find panel", await page.$eval(".find-panel", (e) => e.hidden) && (await page.$$(".ProseMirror .find-match")).length === 0);
+  await page.evaluate(() => window.__editor.view.focus());
+  await page.keyboard.down("Control"); await page.keyboard.press("z"); await page.keyboard.up("Control");
+  check("one Undo restores the replaced text", (await md(page)) === "alpha beta alpha\n\nAlpha in **bold**\n", JSON.stringify(await md(page)));
 
   /* ---------- library: save, reload, versions ---------- */
   await openText(page, "# Trip notes\n\nFirst draft with $x^2$.\n", "trip.md");
@@ -165,7 +188,7 @@ try {
   /* ---------- exports ---------- */
   await openText(page, `# Export check
 
-Math $a^2+b^2=c^2$ and a table:
+Math $a^2+b^2=c^2$ and an embedded image ![dot](data:image/png;base64,${png}) and a table:
 
 | A | B |
 |---|---|
@@ -200,7 +223,7 @@ Forty-two.
   const zip = await JSZip.loadAsync(docx);
   const xml = await zip.file("word/document.xml").async("string");
   check("Word export has native equations", (xml.match(/<m:oMath[ >]/g) || []).length >= 2, String((xml.match(/<m:oMath[ >]/g) || []).length));
-  check("Word export has the diagram as an image", Object.keys(zip.files).some((n) => /^word\/media\/.+\.png$/.test(n)), Object.keys(zip.files).join());
+  check("Word export has the diagram and the embedded (data:) image", Object.keys(zip.files).filter((n) => /^word\/media\/.+\.png$/.test(n)).length === 2 && !xml.includes("[Image"), Object.keys(zip.files).join());
   check("Word export has the table and real headings", xml.includes("<w:tbl>") && xml.includes('w:val="Heading1"'));
 
   await clickText(page, "Export", ".tb-export"); await sleep(200);

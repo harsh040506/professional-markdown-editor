@@ -21,7 +21,7 @@
  */
 import { TextSelection, NodeSelection, AllSelection } from "prosemirror-state";
 import { undo, redo, undoDepth, redoDepth } from "prosemirror-history";
-import { h, svg, $, debounce, load, save as saveLocal, MOD } from "../ui/dom.js";
+import { h, svg, $, debounce, load, save as saveLocal, keys as localKeys, MOD } from "../ui/dom.js";
 import { menuFromButton, toast, confirmDialog, promptDialog, closeAllPopovers, openPopover, buildMenu } from "../ui/overlay.js";
 import { createEditor, createState, getMarkdown } from "../editor/editor.js";
 import { detailsKey } from "../editor/details-plugin.js";
@@ -32,7 +32,7 @@ import { store } from "../storage/store.js";
 import { FolderBackend } from "../storage/folder.js";
 import { LibraryBackend } from "../storage/library.js";
 import { setCurrentFile, dirname, joinPath, isSafeHref } from "./paths.js";
-import { forgetAssets } from "./assets.js";
+import { forgetAssets, loadLocalImage, isDirectSrc } from "./assets.js";
 import { openFileBrowser } from "./files.js";
 import { openExportDialog, exportMarkdown } from "./exporter.js";
 import { openLinkEditor, showShortcuts, imageFromFile } from "./dialogs.js";
@@ -41,6 +41,9 @@ import { looksLikeMarkdown } from "../editor/plugins.js";
 import { parseMarkdown } from "../markdown.js";
 import { Slice } from "prosemirror-model";
 import { SAMPLE } from "./sample.js";
+import { checkDocPath, MAX_FILE } from "../storage/common.js";
+import { openFind } from "../editor/find-plugin.js";
+import { redrawDiagrams } from "../editor/nodeviews.js";
 
 const N = schema.nodes;
 const REPO_URL = "https://github.com/harsh040506/professional-markdown-editor";
@@ -59,15 +62,21 @@ const doc = {
 
 // The one EditorView for the page's lifetime (documents are swapped by replacing its state).
 let view = null;
+// Bumped whenever another document is loaded, so slow work (a save, a file read) that finishes after
+// the user moved on can tell that the open document is no longer the one it started with.
+let docGen = 0;
 const app = {};
 
 /* ---------- theme ---------- */
 // "system" follows the OS setting live. The theme is set as data-theme on <html>; tokens.css does the rest.
 // public/index.html applies the saved theme before the first paint, so there is no flash.
+// Diagrams are drawn in the theme's colours, so they are redrawn when the effective theme changes.
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
 function applyTheme() {
   const t = settings.theme === "system" ? (mq.matches ? "dark" : "light") : settings.theme;
+  const changed = document.documentElement.dataset.theme !== t;
   document.documentElement.dataset.theme = t;
+  if (changed && view) redrawDiagrams();
 }
 mq.addEventListener("change", applyTheme);
 
@@ -114,19 +123,45 @@ function refreshTitle() {
 // Holds the Markdown, when it was stored, and the file's mtime it was based on. Paths are per storage, so
 // a folder's "notes.md" and the library's "notes.md" have separate drafts.
 const draftKey = () => "draft:" + (doc.path ? store.id + ":" + doc.path : "untitled");
-const storeDraft = debounce(() => {
+// Writes (or clears) the open document's draft now. If the browser refuses to keep it (storage full or
+// blocked, or the document is larger than localStorage allows), the user is told once per visit, since
+// they would otherwise believe their unsaved changes are safe.
+let draftWarned = false;
+function writeDraft(markdown) {
   if (!view) return;
-  if (doc.dirty) saveLocal(draftKey(), { markdown: getMarkdown(view), at: Date.now(), base: doc.mtime });
-  else saveLocal(draftKey(), null);
-}, 600);
+  const ok = doc.dirty ? saveLocal(draftKey(), { markdown: markdown != null ? markdown : getMarkdown(view), at: Date.now(), base: doc.mtime }) : saveLocal(draftKey(), null);
+  if (!ok && doc.dirty && !draftWarned) {
+    draftWarned = true;
+    toast("This browser cannot keep a draft of this document (storage is full or blocked). Save it with " + MOD + "+S, or Download as Markdown, so changes are not lost.", { kind: "error", timeout: 10000 });
+  }
+}
+const storeDraft = debounce(() => writeDraft(), 600);
+// Brings the dirty flag and the draft up to date at once, skipping the debounce. Runs when the tab is
+// hidden or closed (pagehide), before an update reload and after an unexpected error, so the last
+// seconds of typing are never lost.
+function flushDraft() {
+  if (!view) return;
+  try {
+    checkDirty.cancel(); storeDraft.cancel();
+    const md = getMarkdown(view);
+    const dirty = md !== doc.savedMarkdown;
+    if (dirty !== doc.dirty) { doc.dirty = dirty; refreshTitle(); }
+    writeDraft(md);
+  } catch (e) { console.error("Could not keep the draft", e); }
+}
 
-// Word count and reading time (230 words per minute) in the corner. Words are runs of letters/digits
-// in any script, so the count works for non-English text too.
+// Word count and reading time (230 words per minute) in the corner; with text selected, "12 of 1,240
+// words". Words are runs of letters/digits in any script, so the count works for non-English text too.
+const countWords = (text) => (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) || []).length;
 const updateCount = debounce(() => {
-  const text = view.state.doc.textBetween(0, view.state.doc.content.size, " ", " ");
-  const words = (text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) || []).length;
-  $("#word-count").textContent = words.toLocaleString() + " words";
-  $("#word-count").dataset.tip = Math.max(1, Math.round(words / 230)) + " min read · " + text.length.toLocaleString() + " characters";
+  if (!view) return;
+  const { doc: d, selection: sel } = view.state;
+  const text = d.textBetween(0, d.content.size, " ", " ");
+  const words = countWords(text);
+  const picked = sel.empty ? "" : d.textBetween(sel.from, sel.to, " ", " ");
+  const el = $("#word-count");
+  el.textContent = (picked ? countWords(picked).toLocaleString() + " of " : "") + words.toLocaleString() + (words === 1 ? " word" : " words");
+  el.dataset.tip = Math.max(1, Math.round(words / 230)) + " min read · " + text.length.toLocaleString() + " characters" + (picked ? " · " + picked.length.toLocaleString() + " selected" : "");
 }, 400);
 
 // Comparing the whole document with the saved text is too slow per keystroke on big files:
@@ -144,8 +179,8 @@ app.onDocChange = () => {
   updateCount();
   updateUndo();
 };
-// Called after every selection change; nothing in the shell needs it at the moment.
-app.onSelectionChange = () => {};
+// Called after every selection change: the word count shows how much is selected.
+app.onSelectionChange = () => updateCount();
 
 // Enables or disables the toolbar's undo/redo buttons.
 function updateUndo() {
@@ -164,6 +199,7 @@ function updateUndo() {
  *        not appear modified the moment it is opened. "" makes an untitled draft count as unsaved.
  */
 function setDocument(markdown, meta) {
+  docGen++;
   Object.assign(doc, { path: null, name: "Untitled.md", mtime: null }, meta);
   setCurrentFile(doc.path);
   doc.savedMarkdown = meta.savedMarkdown != null ? meta.savedMarkdown : markdown;
@@ -197,20 +233,26 @@ async function confirmDiscard() {
  */
 app.openPath = async (path, { skipConfirm = false } = {}) => {
   if (!skipConfirm && !(await confirmDiscard())) return;
+  const gen = docGen;
   try {
     const f = await store.read(path);
+    if (gen !== docGen) return; // another document was opened while this one was being read
+    if (f.content.length > MAX_FILE) throw Object.assign(new Error("the file is too large to edit here (over 50 MB)"), { status: 413 });
     const draft = load("draft:" + store.id + ":" + path, null);
     setDocument(f.content, { path: f.path, name: f.path.split("/").pop(), mtime: f.mtime, savedMarkdown: null });
     if (draft && draft.markdown && draft.markdown !== doc.savedMarkdown) {
-      toast("You have unsaved changes from " + new Date(draft.at).toLocaleString() + ".", {
-        timeout: 12000, action: { label: "Restore", run: () => {
-          const saved = doc.savedMarkdown;
-          view.updateState(createState(draft.markdown, app)); applyDocSettings();
-          doc.savedMarkdown = saved; app.onDocChange();
+      const opened = docGen;
+      const changedSince = draft.base != null && f.mtime != null && draft.base !== f.mtime;
+      toast("You have unsaved changes from " + new Date(draft.at).toLocaleString() + "." + (changedSince ? " The file has been saved since then." : ""), {
+        timeout: 15000, action: { label: "Restore", run: () => {
+          if (opened !== docGen) return; // the user has moved to another document meanwhile
+          // as one undoable change on top of the file, so Undo shows the saved text again
+          view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parseMarkdown(draft.markdown).content).scrollIntoView());
+          view.focus();
         } }
       });
     }
-  } catch (e) { toast("Could not open " + path + ": " + e.message, { kind: "error", timeout: 5000 }); }
+  } catch (e) { toast("Could not open " + path + ": " + e.message, { kind: "error", timeout: 6000 }); }
 };
 
 // Opens text that did not come from storage (a dropped or picked local file) as an unsaved,
@@ -229,57 +271,105 @@ app.newDoc = async () => {
 
 /* ---------- saving ---------- */
 /**
- * Saves the document to the current storage.
+ * Saves the document to the current storage. Resolves true when the text was written.
  *   - untitled: asks for a name (saveAs)
  *   - 409 (the file changed since it was opened, or the name is taken): asks whether to overwrite
  *   - any other failure (storage full, folder access withdrawn): says why; the draft stays in the browser,
  *     and Export → Markdown always works as a fallback
  * @param {{force?: boolean}} [opts]  force: overwrite even if the file changed since it was opened
  */
+// Saves are serialised: pressing Mod-S again while a save is running waits for it and then saves only if
+// there is something new. Two overlapping writes would otherwise both send the old mtime, and the second
+// would report a false "File changed" conflict.
+let saving = null;
 app.save = async (opts = {}) => {
   if (!doc.path) return app.saveAs();
+  while (saving) {
+    await saving;
+    if (!doc.path || (!doc.dirty && !opts.force)) return;
+  }
+  saving = writeDoc(opts).finally(() => { saving = null; });
+  return saving;
+};
+async function writeDoc(opts) {
   const md = getMarkdown(view);
+  const gen = docGen, path = doc.path;
   const t = toast("Saving…", { kind: "busy", timeout: 0 });
   try {
-    const r = await store.write(doc.path, md, doc.mtime, !!opts.force);
-    doc.mtime = r.mtime; doc.savedMarkdown = md; doc.dirty = false;
-    saveLocal(draftKey(), null);
-    saveLocal("last", { path: doc.path, store: store.id }); // so a reload reopens this document
+    const r = await store.write(path, md, doc.mtime, !!opts.force);
+    if (gen !== docGen || path !== doc.path) { t.update("Saved " + path, "success", 1600); return true; } // the user moved on meanwhile
+    doc.mtime = r.mtime; doc.savedMarkdown = md;
+    // typing that happened while the file was written is still unsaved, and stays in the draft
+    doc.dirty = getMarkdown(view) !== md;
+    writeDraft();
+    saveLocal("last", { path, store: store.id }); // so a reload reopens this document
     refreshTitle();
-    t.update("Saved " + doc.path, "success", 1600);
+    t.update("Saved " + path, "success", 1600);
     store.requestPersistence();
+    return true;
   } catch (e) {
-    if (e.status === 409) {
+    if (e.status === 409 && gen === docGen) {
       t.dismiss();
       const taken = doc.mtime == null; // saving under a name that already exists, not saving over a newer version
       const where = store.kind === "folder" ? "on disk after you opened it" : "in another tab after you opened it";
       const ok = await confirmDialog(taken
-        ? { title: "Replace existing document?", message: "“" + doc.path + "” already exists. Replace it with this document? The old text is kept in its version history.", confirm: "Replace", danger: true }
-        : { title: "File changed", message: "“" + doc.path + "” was changed " + where + ". Overwrite it with your version?", confirm: "Overwrite", danger: true });
-      if (ok) return app.save({ force: true });
-    } else t.update("Save failed: " + e.message + ". Your changes are kept as a draft in this browser; Export → Markdown downloads them.", "error", 8000);
+        ? { title: "Replace existing document?", message: "“" + path + "” already exists. Replace it with this document? The old text is kept in its version history.", confirm: "Replace", danger: true }
+        : { title: "File changed", message: "“" + path + "” was changed " + where + ". Overwrite it with your version? The other version is kept in Version history either way.", confirm: "Overwrite", danger: true });
+      if (ok && gen === docGen) return writeDoc({ force: true });
+    } else {
+      console.error("Save failed", e);
+      t.update("Save failed: " + e.message + ". Your changes are kept as a draft in this browser; Download as Markdown saves a copy.", "error", 10000);
+      if (e.status === 403 && store.kind === "folder") toast("Reopen the folder from Open… to save there again.", { timeout: 8000 });
+    }
+    return false;
   }
-};
+}
 
 // Saves under a new path (".md" is added when no Markdown extension is given). If the save does not
 // happen (cancelled overwrite, error), the document keeps its previous path.
+const withExt = (v) => (/\.(md|markdown|txt)$/i.test(v) ? v : v + ".md");
 app.saveAs = async () => {
+  if (saving) await saving;
   const suggestion = doc.path || (fileBase() + ".md");
   const folder = store.kind === "folder";
   const path = await promptDialog({
     title: "Save as", label: folder ? "File path inside " + store.rootName : "Name in your browser library (use / for folders)", value: suggestion, confirm: "Save",
-    validate: (v) => (!v ? "Enter a file name" : /\.\.|^\//.test(v) ? "Use a path inside the folder" : "")
+    // the same rules storage applies, checked here so the dialog can say what is wrong and stay open
+    validate: (v) => { if (!v) return "Enter a file name"; try { checkDocPath(withExt(v)); return ""; } catch (e) { return e.message; } }
   });
   if (!path) return;
-  const target = /\.(md|markdown|txt)$/i.test(path) ? path : path + ".md";
-  const prevPath = doc.path;
+  const target = checkDocPath(withExt(path));
+  const prevPath = doc.path, prevMtime = doc.mtime;
+  if (prevPath && dirname(prevPath) !== dirname(target)) await relocateImages(prevPath, target);
   doc.path = target; doc.mtime = null;
   setCurrentFile(target);
-  await app.save({ force: false });
-  if (doc.dirty) { doc.path = prevPath; setCurrentFile(prevPath); }
-  else saveLocal("draft:untitled", null);
+  saving = writeDoc({ force: false }).finally(() => { saving = null; });
+  const ok = await saving;
+  if (!ok) { doc.path = prevPath; doc.mtime = prevMtime; setCurrentFile(prevPath); }
+  else if (!prevPath) saveLocal("draft:untitled", null);
   refreshTitle();
 };
+// Save As into another folder: images stored beside the old document ("assets/pic.png") would no longer
+// resolve from the new place, so each one is copied beside the new document and its link updated, as
+// one undoable change. Images that cannot be read are left as they are.
+async function relocateImages(fromPath, toPath) {
+  const srcs = new Set();
+  view.state.doc.descendants((n) => { if (n.type === N.image && n.attrs.src && !isDirectSrc(n.attrs.src)) srcs.add(n.attrs.src); });
+  if (!srcs.size) return;
+  const moved = new Map();
+  for (const src of srcs) {
+    try {
+      const blob = await loadLocalImage(src, fromPath);
+      if (blob) moved.set(src, await store.saveAsset(toPath, decodeURIComponent(src.split(/[?#]/)[0].split("/").pop()), blob));
+    } catch (e) { console.warn("Could not copy image", src, e); }
+  }
+  if (!moved.size) return;
+  const tr = view.state.tr;
+  view.state.doc.descendants((n, pos) => { if (n.type === N.image && moved.has(n.attrs.src)) tr.setNodeMarkup(pos, null, { ...n.attrs, src: moved.get(n.attrs.src) }); });
+  view.dispatch(tr);
+  forgetAssets();
+  toast("Copied " + moved.size + (moved.size === 1 ? " image" : " images") + " next to the new document.", { kind: "success" });
+}
 
 /* ---------- links, images ---------- */
 // Opens the link editor for the selection or a known link range.
@@ -340,11 +430,20 @@ app.pickImage = () => imageInput.click();
 
 // Hidden file input behind "Open file from computer" (also used by the Open dialog).
 const openLocal = h("input", { type: "file", accept: ".md,.markdown,.txt,text/markdown,text/plain", class: "visually-hidden", tabindex: "-1", "aria-hidden": "true" });
-openLocal.addEventListener("change", async () => {
+openLocal.addEventListener("change", () => {
   const f = openLocal.files && openLocal.files[0];
   openLocal.value = "";
-  if (f) app.openText(await f.text(), f.name);
+  if (f) openFileObject(f);
 });
+// Opens a File from the computer (picker, drop, or the operating system's "Open with") as an untitled
+// document. Refuses what would freeze the tab or show garbage: files over 50 MB and binary files.
+async function openFileObject(file) {
+  if (file.size > MAX_FILE) { toast("“" + file.name + "” is too large to open (over 50 MB).", { kind: "error", timeout: 6000 }); return; }
+  let text;
+  try { text = await file.text(); } catch (e) { toast("Could not read “" + file.name + "”: " + e.message, { kind: "error", timeout: 6000 }); return; }
+  if (text.includes("\u0000")) { toast("“" + file.name + "” is not a text file.", { kind: "error", timeout: 6000 }); return; }
+  app.openText(text.replace(/^﻿/, ""), file.name);
+}
 
 /* ---------- other dialogs ---------- */
 app.openFiles = () => openFileBrowser(app);
@@ -387,7 +486,8 @@ app.useLibrary = () => switchStorage(() => store.useLibrary(), () => app.openFil
 app.openLocalFile = () => openLocal.click();
 // A document was deleted from the Open dialog: if it is the open one, it becomes an untitled draft.
 app.onFileRemoved = (path) => {
-  if (doc.path !== path) return;
+  if (doc.path !== path) { saveLocal("draft:" + store.id + ":" + path, null); return; } // its draft goes with it
+  saveLocal(draftKey(), null);
   doc.path = null; doc.mtime = null; setCurrentFile(null);
   doc.dirty = true; refreshTitle(); storeDraft();
 };
@@ -437,6 +537,8 @@ function buildToolbar() {
       { label: "Save as…", icon: "Edit", run: () => app.saveAs() },
       { label: "Download as Markdown", icon: "Markdown", run: () => app.exportAs("md") },
       { label: "Version history…", icon: "History", disabled: !doc.path, run: () => app.showHistory() },
+      { type: "sep" },
+      { label: "Find and replace…", icon: "Search", kbd: "Mod-F", run: () => openFind(view, { replace: true }) },
       ...(outline.length ? [{ type: "sep" }, { type: "header", label: "Outline" }, ...outline] : [])
     ], { className: "menu-scroll doc-menu", width: 300 });
   });
@@ -498,6 +600,8 @@ function buildToolbar() {
 
   const moreBtn = tbButton("More", "More", null, () => {
     menuFromButton(moreBtn, [
+      { label: "Find and replace…", icon: "Search", kbd: "Mod-F", run: () => openFind(view, { replace: true }) },
+      { type: "sep" },
       { label: "Expand all sections", icon: "Details", run: () => view.dispatch(view.state.tr.setMeta(detailsKey, { all: true })) },
       { label: "Collapse all sections", icon: "Details", run: () => view.dispatch(view.state.tr.setMeta(detailsKey, { all: false })) },
       { type: "sep" },
@@ -547,8 +651,9 @@ function setupDrop() {
       if (!files || !files.length) return false;
       e.preventDefault();
       const md = files.find((f) => /\.(md|markdown|txt)$/i.test(f.name));
-      if (md) { md.text().then((t) => app.openText(t, md.name)); return true; }
+      if (md) { openFileObject(md); return true; }
       const img = files.filter((f) => f.type.startsWith("image/"));
+      if (!img.length) { toast("Only Markdown or text files (.md, .markdown, .txt) and images can be dropped here.", { kind: "error", timeout: 5000 }); return true; }
       if (img.length) {
         const coords = v.posAtCoords({ left: e.clientX, top: e.clientY });
         if (coords) v.dispatch(v.state.tr.setSelection(TextSelection.near(v.state.doc.resolve(coords.pos))));
@@ -632,12 +737,41 @@ export async function boot() {
   applyDocSettings();
   setupDrop();
   setupContextMenu();
+  // App shortcuts that must work while focus is outside the editor (toolbar, body, the find panel)
   document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented) return; // the editor's own shortcut already handled it
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); app.save(); }
-    else if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); app.openFiles(); }
+    if (!mod || e.altKey && e.code !== "KeyF") return;
+    const k = e.key.toLowerCase();
+    if (k === "s") { e.preventDefault(); app.save(); }
+    else if (k === "o") { e.preventDefault(); app.openFiles(); }
+    else if (k === "p") { e.preventDefault(); app.exportAs("pdf"); }
+    else if (k === "f" && !e.altKey && !e.target.closest?.(".find-panel")) { e.preventDefault(); openFind(view); }
   });
+  // Data safety: the draft is written at once when the tab is hidden, closed or frozen, instead of
+  // after the usual pause in typing.
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushDraft(); });
+  window.addEventListener("pagehide", flushDraft);
+  // Unexpected errors: logged, the draft secured, and the user told once (not for every repeat).
+  let lastErrorAt = 0;
+  const onError = (err) => {
+    const msg = String((err && err.message) || err || "");
+    if (!msg || /ResizeObserver loop|Script error\.?$/i.test(msg)) return; // browser noise, not a failure
+    console.error("Unexpected error", err);
+    flushDraft();
+    if (Date.now() - lastErrorAt < 10000) return;
+    lastErrorAt = Date.now();
+    toast("Something went wrong: " + msg.slice(0, 160) + ". Your text is kept as a draft in this browser.", { kind: "error", timeout: 8000 });
+  };
+  window.addEventListener("error", (e) => onError(e.error || e.message));
+  window.addEventListener("unhandledrejection", (e) => onError(e.reason));
+  // A new version was deployed and its service worker took over (see index.js): offer a reload, with the
+  // draft secured first so nothing typed is lost.
+  window.addEventListener("mde:update", () => {
+    toast("A new version of the editor is available.", { timeout: 60000, action: { label: "Reload", run: () => { flushDraft(); location.reload(); } } });
+  });
+  // Drafts cleared by earlier versions were stored as "null"; remove those leftovers.
+  for (const k of localKeys("draft:")) if (load(k, undefined) === null) saveLocal(k, null);
   $("#scroller").addEventListener("mousedown", (e) => {
     // clicking the empty page below the text puts the caret at the end
     if (e.target.id === "scroller" || e.target.id === "page") {
@@ -664,7 +798,7 @@ export async function boot() {
   if ("launchQueue" in window) {
     window.launchQueue.setConsumer(async (launch) => {
       const handle = launch.files && launch.files[0];
-      if (handle) { const file = await handle.getFile(); app.openText(await file.text(), file.name); }
+      if (handle) { try { openFileObject(await handle.getFile()); } catch (e) { toast("Could not open the file: " + e.message, { kind: "error", timeout: 6000 }); } }
     });
   }
   document.body.classList.add("is-ready");

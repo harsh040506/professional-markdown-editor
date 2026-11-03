@@ -92,8 +92,20 @@ const store = (() => { try { const k = "__t"; localStorage.setItem(k, k); localS
 export function load(key, fallback) {
   try { const v = store && store.getItem("mde:" + key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
 }
-// Stores a JSON value. Fails silently (full or blocked storage): callers treat storage as best effort.
-// Saving null stores "null", which load() returns as null; that is how drafts are cleared.
+// Stores a JSON value; saving null removes the key (that is how drafts are cleared). Never throws.
+// Returns false when the value could not be kept (storage full or blocked), for callers whose data
+// matters enough to tell the user (drafts); others treat storage as best effort.
 export function save(key, value) {
-  try { store && store.setItem("mde:" + key, JSON.stringify(value)); } catch { /* storage full or blocked */ }
+  if (!store) return false;
+  try {
+    if (value === null) store.removeItem("mde:" + key);
+    else store.setItem("mde:" + key, JSON.stringify(value));
+    return true;
+  } catch { return false; }
+}
+// Keys saved with save() that start with `prefix` (without the "mde:" part).
+export function keys(prefix) {
+  const out = [];
+  try { for (let i = 0; store && i < store.length; i++) { const k = store.key(i); if (k && k.startsWith("mde:" + prefix)) out.push(k.slice(4)); } } catch { /* blocked */ }
+  return out;
 }

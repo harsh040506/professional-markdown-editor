@@ -187,7 +187,8 @@ textarea.input { height: auto; padding: 8px 10px; line-height: 1.5; resize: none
 .export-note { font-size: 12.5px; color: var(--text-3); padding: 12px 0 2px; border-top: 1px solid var(--border); }
 
 .file-browser { display: flex; flex-direction: column; gap: 10px; }
-.file-search { position: relative; }
+.file-search-row { display: flex; align-items: center; gap: 8px; }
+.file-search { position: relative; flex: 1; min-width: 0; }
 .file-search > svg { position: absolute; left: 10px; top: 9px; color: var(--text-3); pointer-events: none; }
 .file-search .input { padding-left: 34px; }
 .file-list { max-height: 46vh; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
@@ -318,6 +319,27 @@ textarea.input { height: auto; padding: 8px 10px; line-height: 1.5; resize: none
    it can make the caret jump on the first character typed into a freshly created block.) */
 .ProseMirror[data-large] > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, .code-block, .math-block, .tableWrapper, .details, .hr-wrap) { content-visibility: auto; contain-intrinsic-size: auto 48px; }
 .menu:focus-visible, .menu .menu-item:focus-visible, .menu-with-filter *:focus-visible:not(.input) { box-shadow: none; }
+
+/* ---------- find and replace ---------- */
+.find-panel { position: fixed; top: 52px; right: 16px; z-index: 45; width: min(440px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: var(--radius-lg); background: var(--popover); color: var(--text); box-shadow: var(--shadow-popover), var(--ring); animation: pop-in .12s var(--ease-out); }
+:root[data-theme="dark"] .find-panel { box-shadow: var(--shadow-popover), inset 0 0 0 1px rgba(255,255,255,.1); }
+.find-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.find-replace-row { padding-left: 28px; gap: 6px; }
+.find-input { height: 30px; flex: 1; min-width: 0; font-size: 13.5px; }
+.find-panel.no-results .find-row:first-child .find-input, .find-panel.has-error .find-row:first-child .find-input { box-shadow: inset 0 0 0 1px var(--danger); }
+.find-count { flex: none; min-width: 56px; padding: 0 6px; text-align: right; font-size: 12px; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.find-btn, .find-opt { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); }
+.find-opt { font: 600 12px/1 var(--font-mono); }
+.find-btn:hover:not(:disabled), .find-opt:hover { background: var(--ghost-hover); color: var(--text); }
+.find-btn:disabled { opacity: .35; }
+.find-opt[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.find-expand svg { transition: transform .15s var(--ease-out); }
+.find-expand.is-on svg { transform: rotate(90deg); }
+.find-error { font-size: 12px; color: var(--danger-text); padding: 0 4px 2px 32px; }
+.find-error:empty { display: none; }
+.ProseMirror .find-match { background: var(--mark); border-radius: 2px; }
+.ProseMirror .find-match.is-current { background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+@media (max-width: 767px) { .find-panel { top: 50px; right: 12px; left: 12px; width: auto; } .find-replace-row { padding-left: 0; } .find-error { padding-left: 4px; } }
 
 /* version history */
 .history-list { max-height: 28vh; }

@@ -10,12 +10,13 @@
  */
 import { inputRules, wrappingInputRule, textblockTypeInputRule, InputRule, undoInputRule } from "prosemirror-inputrules";
 import { keymap } from "prosemirror-keymap";
-import { baseKeymap, chainCommands, newlineInCode, createParagraphNear, liftEmptyBlock, splitBlock, selectParentNode, joinUp, joinDown } from "prosemirror-commands";
+import { baseKeymap, chainCommands, newlineInCode, createParagraphNear, liftEmptyBlock, splitBlock, selectParentNode } from "prosemirror-commands";
 import { undo, redo } from "prosemirror-history";
 import { goToNextCell } from "prosemirror-tables";
 import { NodeSelection, TextSelection } from "prosemirror-state";
 import { schema } from "../schema.js";
 import * as C from "./commands.js";
+import { openFind, findNext, closeFind } from "./find-plugin.js";
 
 const N = schema.nodes, M = schema.marks;
 
@@ -174,10 +175,19 @@ export function buildKeymap(app) {
     Enter: chainCommands(C.exitCodeOnDoubleEnter, newlineInCode, C.splitItem, createParagraphNear, liftEmptyBlock, splitBlock),
     Tab: chainCommands(C.codeIndent(false), goToNextCell(1), C.sinkItem, () => true),
     "Shift-Tab": chainCommands(C.codeIndent(true), goToNextCell(-1), C.liftItem, () => true),
-    "Alt-ArrowUp": joinUp, "Alt-ArrowDown": joinDown, Escape: selectParentNode,
+    "Alt-ArrowUp": C.moveBlock(-1), "Alt-ArrowDown": C.moveBlock(1),
+    // Escape first closes the find panel, then selects the parent node as usual
+    Escape: (state, dispatch, view) => (view && closeFind(view)) || selectParentNode(state, dispatch),
+    "Mod-f": (s, d, view) => openFind(view),
+    "Mod-h": (s, d, view) => openFind(view, { replace: true }),
+    "Mod-Alt-f": (s, d, view) => openFind(view, { replace: true }),
+    F3: (s, d, view) => findNext(view, 1), "Shift-F3": (s, d, view) => findNext(view, -1),
+    "Mod-g": (s, d, view) => findNext(view, 1), "Mod-Shift-g": (s, d, view) => findNext(view, -1),
     "Mod-k": () => { app.editLink(); return true; },
     "Mod-s": () => { app.save(); return true; },
     "Mod-o": () => { app.openFiles(); return true; },
+    // Mod-P would print the editor's own page; the PDF export is the print that looks right
+    "Mod-p": () => { app.exportAs("pdf"); return true; },
     "Mod-Shift-p": () => { app.exportAs("pdf"); return true; },
     "Mod-/": () => { app.showShortcuts(); return true; }
   };
@@ -201,7 +211,11 @@ export const SHORTCUTS = [
     ["# Heading", "# Space"], ["Bulleted list", "- Space"], ["Numbered list", "1. Space"], ["Checklist", "[ ] Space"],
     ["Quote", "> Space"], ["Code block", "``` Space"], ["Equation", "$$ Space"], ["Inline equation", "$x$"], ["Divider", "---"], ["Commands", "/"]
   ] },
+  { group: "Find", items: [
+    ["Find", "Mod-F"], ["Find and replace", "Mod-H / Mod-Alt-F"], ["Next / previous match", "Enter / Shift-Enter"],
+    ["Next match (in the page)", "F3 / Mod-G"], ["Match case · whole word · regex", "Alt-C / Alt-W / Alt-R"], ["Replace all", "Mod-Enter"]
+  ] },
   { group: "File", items: [
-    ["Save", "Mod-S"], ["Open", "Mod-O"], ["Export PDF", "Mod-Shift-P"], ["Undo", "Mod-Z"], ["Redo", "Mod-Shift-Z"], ["Shortcuts", "Mod-/"]
+    ["Save", "Mod-S"], ["Open", "Mod-O"], ["Export PDF", "Mod-P / Mod-Shift-P"], ["Undo", "Mod-Z"], ["Redo", "Mod-Shift-Z"], ["Shortcuts", "Mod-/"]
   ] }
 ];

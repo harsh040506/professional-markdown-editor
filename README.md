@@ -93,11 +93,12 @@ Collapsible sections can export open, or as summaries only, which is handy for a
 
 <br>
 
+- **Find and replace** with match case, whole words and regular expressions (including `$1` groups). Every match is highlighted; Replace All is one Undo step.
 - **Version history.** Every save keeps the text it replaced (last 50 per document). Restore one into the editor as an ordinary change, so Undo still works.
 - **Two places to keep files.** A **browser library** that works everywhere, or **folder mode** to edit a real folder on your computer (Chrome, Edge and other Chromium browsers).
 - **Images** are stored beside the document in `assets/`, so the Markdown stays small and portable. Paste or drop them in.
 - **Works offline** and installs as an app. Installed copies can be chosen as the opener for `.md` files.
-- **Drafts are never lost.** Every change is kept in the browser a moment after you stop typing, and offered back if the tab closes.
+- **Drafts are never lost.** Every change is kept in the browser a moment after you stop typing (and at once when the tab is hidden or closed), and offered back when you open the file again. If the browser refuses to keep a draft, you are told.
 - **Light, dark and system themes**, three font roles (serif, sans, mono), a wide-page toggle, spell check, word count and reading time.
 - **Phone friendly.** The toolbar adapts; everything is reachable from the Insert and More menus.
 - **Safe with documents from anyone.** Raw HTML in Markdown is shown as text, never run. Dangerous link types are refused. A strict Content-Security-Policy is shipped. See [SECURITY.md](SECURITY.md).
@@ -202,8 +203,10 @@ The host only ever serves files. After the page has loaded there is no network t
 |---|---|---|
 | Save · Open | <kbd>Ctrl</kbd>+<kbd>S</kbd> · <kbd>Ctrl</kbd>+<kbd>O</kbd> | <kbd>⌘</kbd>+<kbd>S</kbd> · <kbd>⌘</kbd>+<kbd>O</kbd> |
 | Insert any block | <kbd>/</kbd> on an empty line | same |
+| Find · Replace | <kbd>Ctrl</kbd>+<kbd>F</kbd> · <kbd>Ctrl</kbd>+<kbd>H</kbd> | <kbd>⌘</kbd>+<kbd>F</kbd> · <kbd>⌘</kbd>+<kbd>⌥</kbd>+<kbd>F</kbd> |
+| Move block up · down | <kbd>Alt</kbd>+<kbd>↑</kbd> · <kbd>↓</kbd> | <kbd>⌥</kbd>+<kbd>↑</kbd> · <kbd>↓</kbd> |
 | Bold · Italic · Link | <kbd>Ctrl</kbd>+<kbd>B</kbd> · <kbd>I</kbd> · <kbd>K</kbd> | <kbd>⌘</kbd>+<kbd>B</kbd> · <kbd>I</kbd> · <kbd>K</kbd> |
-| Export PDF | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>P</kbd> |
+| Export PDF | <kbd>Ctrl</kbd>+<kbd>P</kbd> | <kbd>⌘</kbd>+<kbd>P</kbd> |
 | Every shortcut | <kbd>Ctrl</kbd>+<kbd>/</kbd> | <kbd>⌘</kbd>+<kbd>/</kbd> |
 
 ## Browser support
@@ -227,11 +230,11 @@ The app has no analytics, no cookies, no accounts and no calls home. Fonts, math
 
 Ideas that fit the "no server" rule, roughly in order. Open an issue to nudge one up.
 
-- [ ] Find and replace
+- [x] Find and replace
 - [ ] Table of contents block and outline sidebar
 - [ ] Footnotes and reference-style links
 - [ ] Import from `.docx`
-- [ ] Re-draw diagrams when the theme changes
+- [x] Re-draw diagrams when the theme changes
 - [ ] Optional sync through a user-supplied Git repository
 
 ## Contributing

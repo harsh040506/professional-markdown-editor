@@ -23,4 +23,9 @@ boot().catch((e) => {
 // Offline support. Only on https or localhost (browsers require it), and not in the dev server.
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
   addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => { /* offline support is optional */ }); });
+  // A new deploy's worker takes over open pages at once (sw.js skipWaiting + clients.claim). This page still
+  // runs the old code, whose lazily loaded parts (diagrams, Word export) may no longer exist on the server,
+  // so the shell offers a reload. The first install (no previous controller) is not an update.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController) dispatchEvent(new Event("mde:update")); });
 }

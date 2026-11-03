@@ -22,6 +22,7 @@ import { detailsPlugin, revealSelection } from "./details-plugin.js";
 import { placeholderPlugin, trailingParagraphPlugin, clipboardPlugin } from "./plugins.js";
 import { slashPlugin, selectionBarPlugin, linkBarPlugin, tableControlsPlugin, tableNormalizePlugin } from "./ui-plugins.js";
 import { nodeViews, openMathEditor } from "./nodeviews.js";
+import { findPlugin } from "./find-plugin.js";
 
 /**
  * Creates an editor state for a Markdown text.
@@ -48,6 +49,7 @@ export function createState(markdown, app) {
     gapCursor(),
     tableEditing({ allowTableNodeSelection: true }),
     highlightPlugin(),
+    findPlugin(),
     detailsPlugin(),
     placeholderPlugin(),
     trailingParagraphPlugin(),

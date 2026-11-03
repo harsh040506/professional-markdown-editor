@@ -337,7 +337,9 @@ export async function renderDocx({ markdown, title, options = {}, images = new M
             ctx.item.numbered = true;
             opts.numbering = { reference: ctx.item.ref, level: ctx.item.level, instance: ctx.item.instance };
             delete opts.indent;
-            if (ctx.quote) opts.indent = { left: ctx.indent - 360 * (ctx.item.level + 1) + 360 * (ctx.item.level + 1) };
+            // inside a quote the numbering's own indent would sit under the quote bar, so the item is
+            // indented explicitly: the quote's indent plus the level's, with the same hanging marker space
+            if (ctx.quote) opts.indent = { left: ctx.indent, hanging: ctx.item.ref.startsWith("task") ? 300 : 280 };
             if (ctx.item.checked) base = { strike: true, color: COLOR.ink2 };
           }
           if (ctx.item) opts.spacing = { before: 0, after: ctx.item.tight ? SP(2) : SP(6) };

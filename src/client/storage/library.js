@@ -27,7 +27,8 @@ export class LibraryBackend {
   }
 
   async read(path) {
-    const rec = await run(["files"], "readonly", (f) => wrap(f.get(path)));
+    let rec;
+    try { rec = await run(["files"], "readonly", (f) => wrap(f.get(path))); } catch (e) { throw friendly(e); }
     if (!rec) throw fail(404, "File not found");
     return { path: rec.path, content: rec.content, mtime: rec.mtime };
   }
@@ -51,10 +52,12 @@ export class LibraryBackend {
   }
 
   async remove(path) {
-    await run(["files", "versions"], "readwrite", async (files, versions) => {
-      await wrap(files.delete(path));
-      await dropVersions(versions, SCOPE(path));
-    });
+    try {
+      await run(["files", "versions"], "readwrite", async (files, versions) => {
+        await wrap(files.delete(path));
+        await dropVersions(versions, SCOPE(path));
+      });
+    } catch (e) { throw friendly(e); }
   }
 
   history(path) { return run(["versions"], "readonly", (v) => listVersions(v, SCOPE(path))); }

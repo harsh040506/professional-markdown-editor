@@ -38,6 +38,10 @@ export function exportMarkdown(view, base) {
   toast("Downloaded " + base + ".md", { kind: "success" });
 }
 
+// A lazily loaded part of the app (export/browser.js, the Word library) failed to download: offline before
+// its first use, or a deploy replaced the file this page was built against. Browsers word it differently.
+const isLoadError = (e) => /dynamically imported module|importing a module script failed|error loading dynamically|failed to fetch/i.test(String(e && e.message || e));
+
 // Firefox does not draw CSS page-number boxes (Chrome, Edge and Safari do).
 const NO_PAGE_BOXES = /Firefox\//.test(navigator.userAgent);
 
@@ -93,7 +97,7 @@ export function openExportDialog(format, { view, title, base, settings, docPath 
   // diagrams can take a few seconds). Characters that are invalid in file names are replaced by spaces.
   async function run(close, btn) {
     save("export:" + format, opts);
-    const fileBase = (name.value.trim() || base).replace(/[\\/:*?"<>|]+/g, " ").trim();
+    const fileBase = (name.value.trim() || base).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().replace(/^\.+/, "").slice(0, 120) || "Untitled";
     const fileName = fileBase + "." + f.ext;
     btn.disabled = true;
     close();
@@ -110,7 +114,10 @@ export function openExportDialog(format, { view, title, base, settings, docPath 
       download(blob, fileName);
       t.update("Exported " + fileName, "success", 2400);
     } catch (e) {
-      t.update("Export failed: " + (e && e.message || e), "error", 7000);
+      console.error("Export failed", e);
+      t.update(isLoadError(e)
+        ? "The export code could not be loaded. If you are offline, connect once and try again; if the editor was just updated, reload the page (your changes are kept as a draft)."
+        : "Export failed: " + (e && e.message || e), "error", 10000);
     }
   }
 }
