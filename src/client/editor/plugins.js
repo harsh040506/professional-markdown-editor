@@ -7,6 +7,7 @@ import { Decoration, DecorationSet } from "prosemirror-view";
 import { Slice } from "prosemirror-model";
 import { schema } from "../schema.js";
 import { parseMarkdown, serializeMarkdown } from "../markdown.js";
+import { convertPastedMath } from "./paste-math.js";
 
 const N = schema.nodes;
 
@@ -77,8 +78,14 @@ export function looksLikeMarkdown(text) {
  *                        text is used instead, otherwise a .md file would paste as a code block
  *   paste HTML           <style>/<script> elements are dropped first; the schema's parseDOM rules
  *                        then discard any other markup they do not know
+ *   paste web math       in HTML from outside the editor, formulas shown as text ("$x^2$", "\(…\)")
+ *                        become equations (paste-math.js); rendered KaTeX/MathML is read by the schema
  */
 export function clipboardPlugin() {
+  // Set by transformPastedHTML for the paste being parsed: true when the HTML came from outside the
+  // editor. ProseMirror calls transformPasted right after, in the same parse, which reads and resets
+  // it. Text pastes and drags inside the editor never set it, so they are never converted.
+  let foreignHtml = false;
   return new Plugin({
     key: new PluginKey("clipboard"),
     props: {
@@ -109,8 +116,15 @@ export function clipboardPlugin() {
         return false;
       },
       transformPastedHTML(html) {
+        // ProseMirror marks HTML it copied itself with data-pm-slice
+        foreignHtml = !/data-pm-slice/.test(html);
         // drop styling that would sneak in from web pages
         return html.replace(/<(style|script)[\s\S]*?<\/\1>/gi, "");
+      },
+      transformPasted(slice, view, asText) {
+        const convert = foreignHtml && !asText && !view.state.selection.$from.parent.type.spec.code;
+        foreignHtml = false;
+        return convert ? convertPastedMath(slice, schema) : slice;
       }
     }
   });

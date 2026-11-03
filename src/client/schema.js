@@ -15,10 +15,17 @@
  */
 import { Schema } from "prosemirror-model";
 import { tableNodes } from "prosemirror-tables";
+import { texFromMathElement } from "./editor/paste-math.js";
 
 // GFM tables from prosemirror-tables. Cells hold inline content only, because a GFM table cell is a
 // single line of Markdown. `align` stores the column alignment from the |:--|:-:|--:| delimiter row;
 // it is set per cell, and tableNormalizePlugin (editor/ui-plugins.js) keeps a column consistent.
+// Attributes for a pasted rendered formula, or false (rule does not match) when it carries no TeX.
+function mathAttrs(el, display) {
+  const tex = texFromMathElement(el);
+  return tex ? { tex, display } : false;
+}
+
 const tables = tableNodes({
   tableGroup: "block",
   cellContent: "inline*",
@@ -151,7 +158,20 @@ export const schema = new Schema({
     math_inline: {
       attrs: { tex: { default: "" }, display: { default: false } },
       group: "inline", inline: true, atom: true, selectable: true, draggable: false,
-      parseDOM: [{ tag: "span[data-math]", getAttrs: (d) => ({ tex: d.getAttribute("data-tex") || d.textContent, display: d.hasAttribute("data-display") }) }],
+      parseDOM: [
+        { tag: "span[data-math]", getAttrs: (d) => ({ tex: d.getAttribute("data-tex") || d.textContent, display: d.hasAttribute("data-display") }) },
+        // Rendered math pasted from other sites, read back to its TeX (see editor/paste-math.js). A rule
+        // that finds no TeX does not match, so the formula's visible text is kept instead.
+        // KaTeX (ChatGPT, Claude, Notion, this app's HTML export); display equations are wrapped in .katex-display
+        { tag: "span.katex-display", priority: 60, getAttrs: (d) => mathAttrs(d, true) },
+        { tag: "span.katex", priority: 55, getAttrs: (d) => mathAttrs(d, false) },
+        // Wikipedia: hidden MathML plus a fallback image of the same formula
+        { tag: "span.mwe-math-element", priority: 60, getAttrs: (d) => mathAttrs(d, !!d.querySelector(".mwe-math-fallback-image-display, .mwe-math-mathml-display")) },
+        // plain MathML (MathJax, Word, Google Docs exports)
+        { tag: "math", getAttrs: (d) => mathAttrs(d, d.getAttribute("display") === "block") },
+        // KaTeX without a TeX annotation: drop its hidden MathML copy so the formula's text is not pasted twice
+        { tag: "span.katex-mathml", priority: 55, ignore: true }
+      ],
       toDOM: (n) => ["span", { "data-math": "", "data-tex": n.attrs.tex, "data-display": n.attrs.display ? "" : null }, n.attrs.tex]
     },
     // ![alt](src "title"). `src` is kept exactly as written (often relative to the document); ImageView

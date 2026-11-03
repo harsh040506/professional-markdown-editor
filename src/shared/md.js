@@ -29,54 +29,63 @@ import MarkdownIt from "markdown-it";
 function isWs(c) { return c === 0x20 || c === 0x09 || c === 0x0a; }
 
 /**
- * Inline rule for `$tex$` and `$$tex$$` inside a paragraph.
+ * Finds `$tex$` or `$$tex$$` starting exactly at `start` in `src` (not looking past `max`).
  *
  * Follows the Pandoc/KaTeX convention so prices and shell variables are not mistaken for math:
  * the opener may not be followed by whitespace, the closer may not be preceded by whitespace or
  * followed by a digit ("costs $5 and $6" stays text), and `\$` is an escaped dollar.
  *
- * @param {object} state    markdown-it inline state
- * @param {boolean} silent  true while markdown-it only probes whether the rule would match
- * @returns {boolean} whether a math token was (or would be) produced
+ * Shared by the Markdown inline rule below and by paste handling (client/editor/paste-math.js),
+ * so a formula is recognized the same way whether it is typed in Markdown or pasted from a web page.
+ *
+ * @param {string} src
+ * @param {number} start  index of the opening `$`
+ * @param {number} [max]  end of the searchable range (default: end of `src`)
+ * @returns {{end: number, tex: string, display: boolean}|null}  `end` is the index just after the
+ *          closing delimiter; null when there is no formula here
  */
-function mathInline(state, silent) {
-  const src = state.src, start = state.pos, max = state.posMax;
-  const c0 = src.charCodeAt(start);
-  if (c0 !== 0x24 /* $ */) return false;
+export function scanInlineMath(src, start, max = src.length) {
+  if (src.charCodeAt(start) !== 0x24 /* $ */) return null;
   if (src.charCodeAt(start + 1) === 0x24) {
     // $$ display $$ inside a paragraph
     let end = start + 2;
     while ((end = src.indexOf("$$", end)) >= 0 && src.charCodeAt(end - 1) === 0x5c) end += 2;
-    if (end < 0 || end > max - 2 || end === start + 2) return false;
-    if (!silent) {
-      const t = state.push("math_inline", "math", 0);
-      t.content = src.slice(start + 2, end).trim();
-      t.meta = { display: true };
-      t.markup = "$$";
-    }
-    state.pos = end + 2;
-    return true;
+    if (end < 0 || end > max - 2 || end === start + 2) return null;
+    return { end: end + 2, tex: src.slice(start + 2, end).trim(), display: true };
   }
   // $inline$: no space after the opener, none before the closer, closer not followed by a digit
-  if (start + 1 >= max || isWs(src.charCodeAt(start + 1))) return false;
+  if (start + 1 >= max || isWs(src.charCodeAt(start + 1))) return null;
   let end = start + 1;
   for (;;) {
     end = src.indexOf("$", end);
-    if (end < 0 || end >= max) return false;
+    if (end < 0 || end >= max) return null;
     if (src.charCodeAt(end - 1) === 0x5c) { end++; continue; }
     if (isWs(src.charCodeAt(end - 1))) { end++; continue; }
     const after = src.charCodeAt(end + 1);
     if (after >= 0x30 && after <= 0x39) { end++; continue; }
     break;
   }
-  if (end === start + 1) return false;
+  if (end === start + 1) return null;
+  return { end: end + 1, tex: src.slice(start + 1, end), display: false };
+}
+
+/**
+ * Inline rule for `$tex$` and `$$tex$$` inside a paragraph (rules: scanInlineMath).
+ *
+ * @param {object} state    markdown-it inline state
+ * @param {boolean} silent  true while markdown-it only probes whether the rule would match
+ * @returns {boolean} whether a math token was (or would be) produced
+ */
+function mathInline(state, silent) {
+  const m = scanInlineMath(state.src, state.pos, state.posMax);
+  if (!m) return false;
   if (!silent) {
     const t = state.push("math_inline", "math", 0);
-    t.content = src.slice(start + 1, end);
-    t.meta = { display: false };
-    t.markup = "$";
+    t.content = m.tex;
+    t.meta = { display: m.display };
+    t.markup = m.display ? "$$" : "$";
   }
-  state.pos = end + 1;
+  state.pos = m.end;
   return true;
 }
 

@@ -10,6 +10,7 @@ import path from "node:path";
 import { build } from "../scripts/build.mjs";
 import { serve } from "../scripts/serve.mjs";
 import { findBrowser, launch } from "./browser.mjs";
+import katex from "katex";
 
 if (!findBrowser()) { console.log("skip e2e: no Chrome, Edge or Chromium found (set CHROME_PATH)"); process.exit(0); }
 
@@ -109,6 +110,40 @@ try {
   await page.evaluate(() => window.__editor.view.focus());
   await page.keyboard.down("Control"); await page.keyboard.press("z"); await page.keyboard.up("Control");
   check("one Undo restores the replaced text", (await md(page)) === "alpha beta alpha\n\nAlpha in **bold**\n", JSON.stringify(await md(page)));
+
+  /* ---------- pasting math from web pages ---------- */
+  // Pastes HTML (as if copied from another site) into an empty document and returns the Markdown.
+  const pasteHtml = async (html) => {
+    await openText(page, "", "paste.md");
+    await page.evaluate((h) => { const v = window.__editor.view; v.focus(); v.pasteHTML(h); }, html);
+    return (await md(page)).trim();
+  };
+  {
+    const out = await pasteHtml(String.raw`<p>Disk: $\text{space} = \lceil \text{size}/4096 \rceil$. Done</p><p>Costs $5 and $6</p><p>a</p><p>$$\text{digit} = 4r + 2w + x$$</p><p>b</p>`);
+    check("pasted $…$ text becomes inline math", out.includes(String.raw`Disk: $\text{space} = \lceil \text{size}/4096 \rceil$. Done`), out);
+    check("pasted prices stay text", out.includes("Costs \\$5 and \\$6"), out);
+    check("a pasted $$…$$ paragraph becomes an equation block", out.includes("a\n\n$$\\text{digit} = 4r + 2w + x$$\n\nb"), out);
+    check("pasted math is drawn", (await page.$$(".ProseMirror .katex")).length >= 2);
+  }
+  {
+    const inline = katex.renderToString("\\pi r^2"), display = katex.renderToString("E = mc^2", { displayMode: true });
+    const out = await pasteHtml(`<p>Area ${inline} here</p><p>x</p>${display}<p>y</p>`);
+    check("pasted KaTeX keeps its TeX", out.includes("Area $\\pi r^2$ here"), out);
+    check("a pasted KaTeX display equation becomes an equation block", out.includes("x\n\n$$E = mc^2$$\n\ny"), out);
+  }
+  {
+    const out = await pasteHtml(`<p>Only ${katex.renderToString("q^2", { output: "html" })} drawn</p>`);
+    check("KaTeX without TeX source pastes its text once", (out.match(/q/g) || []).length === 1, out);
+  }
+  {
+    const wiki = String.raw`<p>See <span class="mwe-math-element"><span class="mwe-math-mathml-inline mwe-math-mathml-a11y" style="display: none;"><math xmlns="http://www.w3.org/1998/Math/MathML" alttext="{\displaystyle x^{2}}"><semantics><mrow><msup><mi>x</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">{\displaystyle x^{2}}</annotation></semantics></math></span><img src="data:," class="mwe-math-fallback-image-inline" alt="{\displaystyle x^{2}}"></span> here and <math alttext="a+b"><mi>a</mi><mo>+</mo><mi>b</mi></math>.</p>`;
+    const out = await pasteHtml(wiki);
+    check("pasted Wikipedia and MathML formulas keep their TeX", out === "See $x^{2}$ here and $a+b$.", out);
+  }
+  {
+    const out = await pasteHtml(`<p data-pm-slice="1 1 []">Literal $x$ typed here</p>`);
+    check("a paste from the editor itself keeps its literal dollars", out === "Literal \\$x\\$ typed here", out);
+  }
 
   /* ---------- library: save, reload, versions ---------- */
   await openText(page, "# Trip notes\n\nFirst draft with $x^2$.\n", "trip.md");

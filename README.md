@@ -67,7 +67,7 @@ There is no separate Markdown view. Type `#`, `-`, `[ ]`, `>` or three backticks
 <td width="50%" valign="top">
 
 ### Math, code, tables, diagrams
-LaTeX equations rendered by KaTeX, with a live preview when you click one. Syntax-coloured code in 34 languages, with automatic detection. Tables with alignment. [Mermaid](https://mermaid.js.org) diagrams you can double-click to edit. Collapsible sections, checklists, highlights, sub- and superscripts.
+LaTeX equations rendered by KaTeX, with a live preview when you click one. Math pasted from web pages and chat apps stays math, whether it arrives rendered (KaTeX, MathML, Wikipedia) or as `$…$` text. Syntax-coloured code in 34 languages, with automatic detection. Tables with alignment. [Mermaid](https://mermaid.js.org) diagrams you can double-click to edit. Collapsible sections, checklists, highlights, sub- and superscripts.
 
 </td>
 </tr>
