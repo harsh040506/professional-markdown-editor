@@ -143,3 +143,5 @@
 .doc-body .details[data-open="false"] .details-inner > .details-content { display: none; }
 .doc-body .details-content > :first-child { margin-top: .5em; }
 .doc-body .details-content > :last-child { margin-bottom: .3em; }
+/* sections nested more than three deep stop indenting further, so the text never shrinks to a sliver */
+.doc-body .details-content .details-content .details-content .details-content { padding-left: 14px; }

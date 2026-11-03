@@ -112,8 +112,12 @@ function fenceFor(text) {
 }
 
 // In a tight list, keep an item's blocks together; only two paragraphs in a row need a blank line.
+// A bullet or numbered item that starts with a fence, quote or section has an empty first paragraph (the
+// schema requires one); it is left out so the block starts on the marker line ("- ```js") instead of
+// being saved as an empty bullet, which would end the list when the file is read again.
 function renderItem(state, node) {
   node.forEach((child, _, i) => {
+    if (i === 0 && node.childCount > 1 && node.type.name === "list_item" && child.type.name === "paragraph" && !child.content.size) return;
     if (i && state.inTightList && !(child.type.name === "paragraph" && node.child(i - 1).type.name === "paragraph")) state.flushClose(1);
     state.render(child, node, i);
   });
@@ -160,7 +164,8 @@ const nodes = {
     state.renderInline(node.firstChild);
     state.write("</summary>");
     state.ensureNewLine();
-    state.write("\n");
+    // a blank line here would make a section inside a tight list item turn the whole list loose
+    if (!state.inTightList) state.write("\n");
     state.renderContent(node.lastChild);
     state.flushClose(1);
     state.write("</details>");

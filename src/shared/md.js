@@ -172,35 +172,67 @@ function highlight(state, silent) {
 /* ---------- <details><summary> as real structure ---------- */
 // <details> is written as HTML in Markdown sources, but the editor treats it as real structure (a
 // collapsible section with an editable summary and body). DETAILS_RE finds its three pieces inside an
-// HTML block: an opening tag (group 1 = " open"), a whole <summary>…</summary> (group 2 = its inline
-// Markdown), and a closing tag.
-const DETAILS_RE = /<details(\s+open)?\s*>|<summary\s*>([\s\S]*?)<\/summary\s*>|<\/details\s*>/gi;
+// HTML block: an opening tag (group 1 = its attributes, which may say `open`), a whole
+// <summary>…</summary> (group 2 = its inline Markdown), and a closing tag. Attributes such as
+// class="faq" are accepted and dropped.
+const DETAILS_RE = /<details(?=[\s>\/])([^>]*)>|<summary(?=[\s>\/])[^>]*>([\s\S]*?)<\/summary\s*>|<\/details\s*>/gi;
+const hasOpenAttr = (attrs) => /(^|\s)open(?=[\s=\/]|$)/i.test(attrs || "");
 
-// "<details>" that starts mid-paragraph (outside code spans) is lifted out as an HTML block,
-// the way a browser lays it out, so it becomes a real collapsible section.
+// A <details> or </details> tag that really is one: not escaped with a backslash (`\<details>` is
+// the text "<details>", which the serializer itself writes for literal text) and not inside a code span.
 function detailsIndex(text) {
-  const re = /<details[\s>]/gi;
+  const re = /<\/?details(?=[\s>\/])/gi;
   let m;
   while ((m = re.exec(text))) {
+    let bs = 0;
+    while (text.charCodeAt(m.index - 1 - bs) === 0x5c) bs++;
+    if (bs % 2) continue;
     const ticks = (text.slice(0, m.index).match(/`+/g) || []).length;
     if (ticks % 2 === 0) return m.index;
   }
   return -1;
 }
+
+// Word, Google Docs and many LLM tools export <details> with every "<" escaped: a paragraph that is
+// nothing but `\<details>\<summary>Q\</summary>` or `\</details>`. Returns the unescaped tag text
+// when `content` is exactly such a paragraph, else null.
+const ESCAPED_OPEN_RE = /^<details(?:\s[^>]*)?>(?:\s*<summary(?:\s[^>]*)?>[\s\S]*?<\/summary\s*>)?$/i;
+const ESCAPED_CLOSE_RE = /^<\/details\s*>$/i;
+function unescapedTags(content) {
+  if (!/\\[<>]/.test(content)) return null;
+  const plain = content.replace(/\\(?=[<>])/g, "").trim();
+  if (ESCAPED_OPEN_RE.test(plain)) return { plain, open: true };
+  if (ESCAPED_CLOSE_RE.test(plain)) return { plain, open: false };
+  return null;
+}
+
 /**
- * Moves a `<details>` that begins in the middle of a paragraph into its own HTML block, keeping the
- * text before it as a paragraph. CommonMark only treats <details> as a block when it starts a line;
- * browsers (and GitHub) show it as a section either way, so the editor does too.
+ * Repairs <details> tags that CommonMark does not see as an HTML block, so they still become real
+ * sections the way a browser (and GitHub) shows them:
+ *   - a `<details>` or `</details>` in the middle of a paragraph is moved into its own HTML block, keeping
+ *     the text before it as a paragraph (CommonMark only starts an HTML block at the start of a line);
+ *   - escaped tags (`\<details>`) stay literal text, EXCEPT paragraphs made only of escaped tags when the
+ *     document has both an escaped opener and an escaped closer. That pairing shows the author meant a
+ *     fold and an exporter escaped it; a lone `\<details>` in prose is left as text.
  */
 function liftInlineDetails(state) {
   const Token = state.Token, toks = state.tokens, out = [];
+  const isLone = (i) => toks[i].type === "paragraph_open" && toks[i + 1] && toks[i + 1].type === "inline" && toks[i + 2] && toks[i + 2].type === "paragraph_close";
+  let escOpen = 0, escClose = 0;
+  for (let i = 0; i < toks.length; i++) {
+    if (!isLone(i)) continue;
+    const e = unescapedTags(toks[i + 1].content);
+    if (e) e.open ? escOpen++ : escClose++;
+  }
+  const recoverEscaped = escOpen > 0 && escClose > 0;
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
-    if (t.type === "paragraph_open" && toks[i + 1] && toks[i + 1].type === "inline" && toks[i + 2] && toks[i + 2].type === "paragraph_close") {
+    if (isLone(i)) {
       const inl = toks[i + 1];
-      const at = detailsIndex(inl.content);
+      const esc = recoverEscaped ? unescapedTags(inl.content) : null;
+      const at = esc ? 0 : detailsIndex(inl.content);
       if (at >= 0) {
-        const full = inl.content;
+        const full = esc ? esc.plain : inl.content;
         const before = full.slice(0, at).trimEnd();
         if (before) {
           inl.content = before;
@@ -219,49 +251,58 @@ function liftInlineDetails(state) {
   state.tokens = out;
 }
 
+const isDetailsTok = (t) => t.type.startsWith("details_");
+
 /**
  * Core rule that turns <details> HTML blocks into structural tokens, then repairs the nesting.
  *
  * 1. convert(): split each HTML block at the details/summary tags. The text between tags is parsed
  *    again as Markdown (recursively), so sections can nest and contain lists, code, math and so on.
- * 2. Balance: every details_open gets exactly one summary (a default "Details" when the source has
- *    none), a body and a close. A stray </details> is dropped, a stray <summary> becomes a plain
- *    paragraph, and sections still open at the end of the document are closed.
- * 3. An empty body gets one empty paragraph, because the editor's schema requires block content.
- * Malformed HTML therefore never throws; it degrades to the closest valid structure.
+ *    An HTML block that mentions the tags but yields no usable tag (e.g. an unclosed <summary>) is
+ *    kept as it is; re-parsing it would never end.
+ * 2. Balance, per container: every details_open gets exactly one summary (a default "Details" when the
+ *    source has none), a body and a close. A section can never cross the edge of the list item or
+ *    quote it started in: it is closed there, and a </details> with nothing open in its own container
+ *    is dropped. A stray <summary> becomes a plain paragraph.
+ * 3. A section whose </details> is missing anywhere in its container ends at the next heading or
+ *    rule instead of swallowing the rest of the document (it is closed at the end of the container
+ *    otherwise), so one lost tag stays a local problem.
+ * 4. An empty body gets one empty paragraph, because the editor's schema requires block content.
+ * Malformed HTML therefore never throws and never loses text; it degrades to the closest valid structure.
  */
 function detailsRule(state) {
   liftInlineDetails(state);
   const Token = state.Token;
+  const mk = (type, tag, nesting) => Object.assign(new Token(type, tag, nesting), { block: true });
   function convert(tokens) {
     const res = [];
     for (const tok of tokens) {
       if (tok.type !== "html_block" || !/<\/?details|<summary/i.test(tok.content)) { res.push(tok); continue; }
       const src = tok.content;
+      // a fresh regex per block: chunk() below recurses, and a shared one would lose its position
+      const re = new RegExp(DETAILS_RE.source, DETAILS_RE.flags);
+      if (!re.test(src)) { res.push(tok); continue; }
+      re.lastIndex = 0;
       let last = 0, m;
-      DETAILS_RE.lastIndex = 0;
       const chunk = (s) => {
         if (!s.trim()) return;
         const sub = [];
         state.md.block.parse(s, state.md, state.env, sub);
         res.push(...convert(sub));
       };
-      while ((m = DETAILS_RE.exec(src))) {
+      while ((m = re.exec(src))) {
         chunk(src.slice(last, m.index));
-        last = DETAILS_RE.lastIndex;
+        last = re.lastIndex;
         const t = m[0];
         if (/^<details/i.test(t)) {
-          const o = new Token("details_open", "details", 1);
-          o.block = true; o.meta = { open: !!m[1] };
+          const o = mk("details_open", "details", 1);
+          o.meta = { open: hasOpenAttr(m[1]) };
           res.push(o);
         } else if (/^<summary/i.test(t)) {
-          const so = new Token("details_summary_open", "summary", 1); so.block = true;
           const inl = new Token("inline", "", 0); inl.content = (m[2] || "").trim(); inl.children = [];
-          const sc = new Token("details_summary_close", "summary", -1); sc.block = true;
-          res.push(so, inl, sc);
+          res.push(mk("details_summary_open", "summary", 1), inl, mk("details_summary_close", "summary", -1));
         } else {
-          const c = new Token("details_close", "details", -1); c.block = true;
-          res.push(c);
+          res.push(mk("details_close", "details", -1));
         }
       }
       chunk(src.slice(last));
@@ -269,56 +310,85 @@ function detailsRule(state) {
     return res;
   }
   const converted = convert(state.tokens);
-  // balance: every details gets exactly one summary, a body, and a close
+
+  // Pass 1: which openers never meet a closer inside their own container?
+  const loose = new Set();
+  {
+    const frames = [[]];
+    for (const t of converted) {
+      if (t.type === "details_open") frames[frames.length - 1].push(t);
+      else if (t.type === "details_close") frames[frames.length - 1].pop();
+      else if (isDetailsTok(t)) continue;
+      else if (t.nesting === 1) frames.push([]);
+      else if (t.nesting === -1 && frames.length > 1) for (const o of frames.pop()) loose.add(o);
+    }
+    for (const o of frames[0]) loose.add(o);
+  }
+
+  // Pass 2: rebuild with one stack of open sections per container.
   const fixed = [];
-  const stack = [];
+  const frames = [[]];
+  const stack = () => frames[frames.length - 1];
+  const closeSection = () => {
+    stack().pop();
+    fixed.push(mk("details_body_close", "div", -1), mk("details_close", "details", -1));
+  };
+  const openBody = (sec) => { fixed.push(mk("details_body_open", "div", 1)); sec.body = true; };
   for (let i = 0; i < converted.length; i++) {
     const tok = converted[i];
+    const cur = stack(), sec = cur[cur.length - 1];
     if (tok.type === "details_open") {
+      if (sec) sec.filled = true;
       fixed.push(tok);
-      const frame = { body: false };
-      stack.push(frame);
+      const frame = { body: false, filled: false, loose: loose.has(tok) };
+      cur.push(frame);
       const n = converted[i + 1];
       if (!n || n.type !== "details_summary_open") {
-        const so = new Token("details_summary_open", "summary", 1); so.block = true;
         const inl = new Token("inline", "", 0); inl.content = "Details"; inl.children = [];
-        const sc = new Token("details_summary_close", "summary", -1); sc.block = true;
-        fixed.push(so, inl, sc);
-        fixed.push(Object.assign(new Token("details_body_open", "div", 1), { block: true }));
-        frame.body = true;
+        fixed.push(mk("details_summary_open", "summary", 1), inl, mk("details_summary_close", "summary", -1));
+        openBody(frame);
       }
       continue;
     }
-    if (tok.type === "details_summary_close" && stack.length && !stack[stack.length - 1].body) {
-      fixed.push(tok);
-      fixed.push(Object.assign(new Token("details_body_open", "div", 1), { block: true }));
-      stack[stack.length - 1].body = true;
-      continue;
-    }
-    if (tok.type === "details_summary_open" && (!stack.length || stack[stack.length - 1].body)) {
+    if (tok.type === "details_summary_close" && sec && !sec.body) { fixed.push(tok); openBody(sec); continue; }
+    if (tok.type === "details_summary_open" && (!sec || sec.body)) {
       // stray <summary>: keep its text as a paragraph
-      const inl = converted[i + 1];
-      fixed.push(Object.assign(new Token("paragraph_open", "p", 1), { block: true }), inl, Object.assign(new Token("paragraph_close", "p", -1), { block: true }));
+      fixed.push(mk("paragraph_open", "p", 1), converted[i + 1], mk("paragraph_close", "p", -1));
+      if (sec) sec.filled = true;
       i += 2;
       continue;
     }
     if (tok.type === "details_close") {
-      if (!stack.length) continue; // stray </details>
-      stack.pop();
-      fixed.push(Object.assign(new Token("details_body_close", "div", -1), { block: true }), tok);
+      if (sec) closeSection(); // else a stray </details>: dropped
       continue;
     }
+    if (tok.type === "heading_open" || tok.type === "hr") {
+      // a section that never gets its </details> ends at the next heading or rule
+      while (stack().length && stack()[stack().length - 1].loose && stack()[stack().length - 1].filled) closeSection();
+    }
+    if (!isDetailsTok(tok) && tok.nesting === 1) {
+      if (stack()[stack().length - 1]) stack()[stack().length - 1].filled = true;
+      frames.push([]);
+      fixed.push(tok);
+      continue;
+    }
+    if (!isDetailsTok(tok) && tok.nesting === -1 && frames.length > 1) {
+      while (stack().length) closeSection(); // a section ends where its list item or quote ends
+      frames.pop();
+      fixed.push(tok);
+      continue;
+    }
+    const now = stack()[stack().length - 1];
+    if (now && now.body && !isDetailsTok(tok)) now.filled = true;
     fixed.push(tok);
   }
-  while (stack.length) {
-    stack.pop();
-    fixed.push(Object.assign(new Token("details_body_close", "div", -1), { block: true }), Object.assign(new Token("details_close", "details", -1), { block: true }));
-  }
+  while (frames[0].length) { frames.length = 1; closeSection(); }
+
   // an empty body needs one paragraph so the structure stays editable
   for (let i = 0; i < fixed.length; i++) {
     if (fixed[i].type === "details_body_open" && fixed[i + 1] && fixed[i + 1].type === "details_body_close") {
       const inl = new Token("inline", "", 0); inl.content = ""; inl.children = [];
-      fixed.splice(i + 1, 0, Object.assign(new Token("paragraph_open", "p", 1), { block: true }), inl, Object.assign(new Token("paragraph_close", "p", -1), { block: true }));
+      fixed.splice(i + 1, 0, mk("paragraph_open", "p", 1), inl, mk("paragraph_close", "p", -1));
     }
   }
   state.tokens = fixed;
