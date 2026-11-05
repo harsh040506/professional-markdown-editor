@@ -199,7 +199,7 @@ export function selectionBarPlugin(app) {
       // Positions the bar centred above the selection. For a selection spanning several lines its left
       // edge is clamped to the editor, so the bar does not jump to the far left of the page.
       function update(view) {
-        if (mouseDown || !view.hasFocus() && !bar.contains(document.activeElement)) { hide(); return; }
+        if (!view.editable || mouseDown || !view.hasFocus() && !bar.contains(document.activeElement)) { hide(); return; }
         if (!shouldShow(view.state)) { hide(); return; }
         const label = blockLabel(view.state);
         turnBtn.querySelector(".selbar-turn-label").textContent = label.label;
@@ -217,6 +217,7 @@ export function selectionBarPlugin(app) {
       window.addEventListener("scroll", onScroll, true);
       return {
         update(view, prev) {
+          if (visible && !view.editable) { hide(); return; } // the document was just locked
           if (prev && prev.selection.eq(view.state.selection) && prev.doc.eq(view.state.doc)) return;
           update(view);
         },
@@ -267,7 +268,7 @@ export function linkBarPlugin(app) {
       urlEl.addEventListener("click", (e) => { e.preventDefault(); if (range) app.openLink(range.href); });
       function update(view) {
         const sel = view.state.selection;
-        range = sel.empty && view.hasFocus() ? C.linkRange(view.state, sel.from) : null;
+        range = view.editable && sel.empty && view.hasFocus() ? C.linkRange(view.state, sel.from) : null;
         if (!range) { bar.classList.remove("is-visible"); return; }
         urlEl.textContent = range.href;
         // only safe targets become a real href (middle-click and "copy link" bypass app.openLink)
@@ -282,7 +283,11 @@ export function linkBarPlugin(app) {
       const onScroll = () => { if (range) update(view); };
       window.addEventListener("scroll", onScroll, true);
       return {
-        update(view, prev) { if (prev && prev.selection.eq(view.state.selection) && prev.doc.eq(view.state.doc)) return; update(view); },
+        update(view, prev) {
+          if (range && !view.editable) { update(view); return; } // the document was just locked
+          if (prev && prev.selection.eq(view.state.selection) && prev.doc.eq(view.state.doc)) return;
+          update(view);
+        },
         destroy() { bar.remove(); window.removeEventListener("scroll", onScroll, true); }
       };
     },
@@ -295,6 +300,16 @@ export function linkBarPlugin(app) {
         return false;
       },
       handleDOMEvents: {
+        // In a locked (read-only) document a plain click on a link opens it, as in a viewer. Without
+        // this the browser would follow the <a> itself, in this tab and without the scheme checks.
+        click(view, e) {
+          if (view.editable) return false;
+          const a = e.target.closest && e.target.closest("a[href]");
+          if (!a || !view.dom.contains(a)) return false;
+          e.preventDefault();
+          app.openLink(a.getAttribute("href"));
+          return true;
+        },
         blur() { setTimeout(() => { const b = document.querySelector(".linkbar"); if (b && !b.matches(":hover")) b.classList.remove("is-visible"); }, 120); return false; }
       }
     }

@@ -18,6 +18,10 @@
  *     since (another tab, or another program in folder mode), and the user chooses whether to
  *     overwrite. The replaced text is kept as a version either way (Version history…).
  *   - Leaving a file with unsaved changes asks first; untitled drafts never ask (they stay as drafts).
+ *   - The lock (app.locked, kept in settings) makes the document read-only: the editor is not editable
+ *     and lockPlugin refuses every document change. Loading a document is not a change, so opening,
+ *     saving and exporting work while locked. Code that edits outside the editor's own checks calls
+ *     refuseWhenLocked(), or marks its transaction lockBypass when it must go through (Save As image links).
  */
 import { TextSelection, NodeSelection, AllSelection } from "prosemirror-state";
 import { undo, redo, undoDepth, redoDepth } from "prosemirror-history";
@@ -49,7 +53,7 @@ const N = schema.nodes;
 const REPO_URL = "https://github.com/harsh040506/professional-markdown-editor";
 
 // Editor preferences. Defaults first, then whatever was saved, so new settings get a default.
-const settings = Object.assign({ theme: "system", headingFont: "serif", textFont: "sans", wide: false, spellcheck: true }, load("settings", {}));
+const settings = Object.assign({ theme: "system", headingFont: "serif", textFont: "sans", wide: false, spellcheck: true, locked: false }, load("settings", {}));
 function saveSettings() { saveLocal("settings", settings); }
 
 const doc = {
@@ -66,6 +70,9 @@ let view = null;
 // the user moved on can tell that the open document is no longer the one it started with.
 let docGen = 0;
 const app = {};
+// Lock ("view mode"): while true the document is read-only. Kept in settings, so a reload stays locked.
+// Read by the editor (editor.js: the editable prop, plugins.js: lockPlugin) and set only by setLocked.
+app.locked = !!settings.locked;
 
 /* ---------- theme ---------- */
 // "system" follows the OS setting live. The theme is set as data-theme on <html>; tokens.css does the rest.
@@ -184,9 +191,48 @@ app.onSelectionChange = () => updateCount();
 
 // Enables or disables the toolbar's undo/redo buttons.
 function updateUndo() {
-  $("#btn-undo").disabled = !undoDepth(view.state);
-  $("#btn-redo").disabled = !redoDepth(view.state);
+  $("#btn-undo").disabled = app.locked || !undoDepth(view.state);
+  $("#btn-redo").disabled = app.locked || !redoDepth(view.state);
 }
+
+/* ---------- lock (view mode) ---------- */
+// Locking makes the document read-only: no caret or typing (contenteditable off), no editing buttons,
+// and the editor refuses any change that still gets through (lockPlugin). Reading tools keep working:
+// scrolling, selecting and copying, search, folding sections, "Show code" on diagrams, following links,
+// saving, exports, theme and fonts. The state is remembered across reloads.
+function applyLock() {
+  const on = app.locked;
+  view.setProps({ editable: () => !app.locked }); // re-reads the editable prop
+  document.body.classList.toggle("is-locked", on);
+  $("#page").classList.toggle("is-locked", on);
+  for (const b of document.querySelectorAll("#toolbar .edit-only")) b.disabled = on;
+  const lock = $("#btn-lock");
+  lock.classList.toggle("is-on", on);
+  lock.classList.toggle("has-label", on);
+  lock.setAttribute("aria-pressed", String(on));
+  lock.dataset.tip = on ? "Unlock to edit" : "Lock (view only)";
+  lock.setAttribute("aria-label", lock.dataset.tip);
+  lock.replaceChildren(svg(on ? "Lock" : "Unlock", 16), ...(on ? [h("span", null, "View only")] : []));
+  updateUndo();
+}
+app.setLocked = async (on) => {
+  on = !!on;
+  if (on === app.locked) return;
+  if (on) {
+    // An open equation editor lives in the document; let it save its text before the document locks
+    const a = document.activeElement;
+    if (a && a.closest && a.closest(".math-block-editor")) { a.blur(); await new Promise((r) => setTimeout(r, 20)); }
+    closeAllPopovers("lock");
+  }
+  app.locked = on;
+  settings.locked = on; saveSettings();
+  applyLock();
+  if (!on) view.focus();
+  toast(on ? "Locked: the document is view only." : "Unlocked: you can edit again.", { timeout: 1800 });
+};
+app.toggleLock = () => app.setLocked(!app.locked);
+// Edits made from places that sit outside the editor's own checks say why nothing happened.
+const refuseWhenLocked = () => { if (!app.locked) return false; toast("The document is locked. Unlock it to make changes.", { timeout: 2500 }); return true; };
 
 /* ---------- loading documents ---------- */
 /**
@@ -246,9 +292,9 @@ app.openPath = async (path, { skipConfirm = false } = {}) => {
       toast("You have unsaved changes from " + new Date(draft.at).toLocaleString() + "." + (changedSince ? " The file has been saved since then." : ""), {
         timeout: 15000, action: { label: "Restore", run: () => {
           if (opened !== docGen) return; // the user has moved to another document meanwhile
+          if (refuseWhenLocked()) return;
           // as one undoable change on top of the file, so Undo shows the saved text again
-          view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parseMarkdown(draft.markdown).content).scrollIntoView());
-          view.focus();
+          replaceDocument(parseMarkdown(draft.markdown).content);
         } }
       });
     }
@@ -366,7 +412,7 @@ async function relocateImages(fromPath, toPath) {
   if (!moved.size) return;
   const tr = view.state.tr;
   view.state.doc.descendants((n, pos) => { if (n.type === N.image && moved.has(n.attrs.src)) tr.setNodeMarkup(pos, null, { ...n.attrs, src: moved.get(n.attrs.src) }); });
-  view.dispatch(tr);
+  view.dispatch(tr.setMeta("lockBypass", true)); // the links must follow the copies, even in a locked document
   forgetAssets();
   toast("Copied " + moved.size + (moved.size === 1 ? " image" : " images") + " next to the new document.", { kind: "success" });
 }
@@ -422,6 +468,7 @@ imageInput.addEventListener("change", async () => {
 });
 // Inserts an image file at the cursor: stored in assets/ next to the document when possible (dialogs.js).
 async function insertImageFile(file) {
+  if (refuseWhenLocked()) return;
   const r = await imageFromFile(file, doc.path);
   if (r) C.insertImage(r.src, r.alt)(view.state, view.dispatch);
   view.focus();
@@ -452,12 +499,19 @@ app.openFiles = () => openFileBrowser(app);
 app.showHistory = () => {
   if (!doc.path) { toast("Save the document first; versions are kept from then on."); return; }
   openHistory(app, doc.path, (markdown) => {
+    if (refuseWhenLocked()) return;
     // one undoable change, so the current text is never lost
-    const d = parseMarkdown(markdown);
-    view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, d.content).scrollIntoView());
-    view.focus();
+    replaceDocument(parseMarkdown(markdown).content);
   });
 };
+// Replaces the whole document as one undoable change. The cursor goes to the start and nothing is
+// scrolled: after replacing everything the cursor would otherwise sit at the end of the new text, and
+// scrollIntoView would throw the page down to the bottom.
+function replaceDocument(content) {
+  const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, content);
+  view.dispatch(tr.setSelection(TextSelection.atStart(tr.doc)));
+  view.focus();
+}
 app.showShortcuts = () => showShortcuts();
 // Exports: Markdown is a plain download; PDF (print dialog), Word and HTML are built in this browser by
 // export/browser.js, after the dialog in app/exporter.js has collected the options.
@@ -561,6 +615,7 @@ function buildToolbar() {
   widthBtn.classList.add("tb-extra"); widthBtn.classList.toggle("is-on", !!settings.wide);
 
   const insertBtn = h("button", { class: "tb-btn has-label has-caret", type: "button", "aria-label": "Insert", "data-tip": "Insert a block" }, svg("Add", 16), h("span", null, "Insert"), chevron());
+  insertBtn.classList.add("edit-only");
   insertBtn.addEventListener("mousedown", (e) => e.preventDefault());
   insertBtn.addEventListener("click", () => {
     menuFromButton(insertBtn, [
@@ -575,6 +630,9 @@ function buildToolbar() {
   undoBtn.id = "btn-undo";
   const redoBtn = tbButton("Redo", "Redo", "Mod-Shift-Z", () => { redo(view.state, view.dispatch); view.focus(); });
   redoBtn.id = "btn-redo";
+  // Lock / unlock (view mode). applyLock sets its icon, label and tooltip.
+  const lockBtn = tbButton("Unlock", "Lock (view only)", "Mod-Shift-L", () => app.toggleLock(), { cls: "tb-lock" });
+  lockBtn.id = "btn-lock";
 
   const exportBtn = h("button", { class: "tb-btn tb-export has-label has-caret", type: "button", "data-tip": "Export", "aria-label": "Export" }, svg("Export", 16), h("span", null, "Export"), chevron());
   exportBtn.addEventListener("mousedown", (e) => e.preventDefault());
@@ -622,15 +680,15 @@ function buildToolbar() {
     h("div", { class: "tb-group" }, titleBtn),
     h("div", { class: "tb-group tb-tools" },
       fontBtn, widthBtn, h("span", { class: "tb-sep" }),
-      tbButton("Table", "Insert table", null, () => { C.insertTable(3, 3)(view.state, view.dispatch); view.focus(); }, { cls: "tb-extra" }),
-      tbButton("Image", "Insert image", null, () => app.pickImage(), { cls: "tb-extra" }),
-      tbButton("Checklist", "Checklist", "Mod-Shift-9", () => { C.toggleList(N.task_list)(view.state, view.dispatch); view.focus(); }, { cls: "tb-extra" }),
-      tbButton("Math", "Equation", "Mod-Shift-M", () => { C.insertMathBlock(view.state, view.dispatch); }, { cls: "tb-extra" }),
+      tbButton("Table", "Insert table", null, () => { C.insertTable(3, 3)(view.state, view.dispatch); view.focus(); }, { cls: "tb-extra edit-only" }),
+      tbButton("Image", "Insert image", null, () => app.pickImage(), { cls: "tb-extra edit-only" }),
+      tbButton("Checklist", "Checklist", "Mod-Shift-9", () => { C.toggleList(N.task_list)(view.state, view.dispatch); view.focus(); }, { cls: "tb-extra edit-only" }),
+      tbButton("Math", "Equation", "Mod-Shift-M", () => { C.insertMathBlock(view.state, view.dispatch); }, { cls: "tb-extra edit-only" }),
       insertBtn),
     h("div", { class: "tb-spacer" }),
     h("div", { class: "tb-group tb-right" },
       h("span", { class: "save-state", id: "save-state", "data-tip": "" }),
-      undoBtn, redoBtn, h("span", { class: "tb-sep" }), exportBtn, themeBtn, moreBtn),
+      lockBtn, undoBtn, redoBtn, h("span", { class: "tb-sep" }), exportBtn, themeBtn, moreBtn),
     openLocal, imageInput);
 }
 
@@ -645,6 +703,15 @@ function setupDrop() {
   scroller.addEventListener("dragenter", (e) => { if (hasFiles(e)) { depth++; document.body.classList.add("is-dropping"); } });
   scroller.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; document.body.classList.remove("is-dropping"); } });
   scroller.addEventListener("drop", () => { depth = 0; document.body.classList.remove("is-dropping"); });
+  // A locked editor takes no drops of its own, and a file dropped on the page would be opened by the
+  // browser, replacing the editor. Dragging over must be accepted for the drop to arrive here.
+  scroller.addEventListener("dragover", (e) => { if (app.locked && hasFiles(e)) e.preventDefault(); });
+  scroller.addEventListener("drop", (e) => {
+    if (!app.locked || !hasFiles(e)) return;
+    e.preventDefault();
+    const md = Array.from(e.dataTransfer.files).find((f) => /\.(md|markdown|txt)$/i.test(f.name));
+    if (md) openFileObject(md); else refuseWhenLocked();
+  });
   view.setProps({
     handleDrop(v, e) {
       const files = e.dataTransfer && Array.from(e.dataTransfer.files || []);
@@ -670,6 +737,16 @@ function setupDrop() {
   });
 }
 
+// Selects the whole document. A locked editor holds no selection of its own (it is not editable), so
+// the browser's selection is used and the editor reads it back; Copy then still writes Markdown.
+function selectAll() {
+  if (!app.locked) { view.focus(); view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc))); return; }
+  const range = document.createRange();
+  range.selectNodeContents(view.dom);
+  const sel = getSelection();
+  sel.removeAllRanges(); sel.addRange(range);
+}
+
 /* ---------- right-click menu (replaces the browser's) ---------- */
 // Right-click menu, replacing the browser's: link actions, clipboard, select all and basic formatting.
 // "Paste" from a menu needs the async Clipboard API, which asks for permission; when it is refused the
@@ -693,20 +770,27 @@ function setupContextMenu() {
     const link = hit ? C.linkRange(view.state, hit.pos) : null;
     if (hit && !hasSel && !(view.state.selection instanceof NodeSelection)) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(hit.pos))).setMeta("pointer", true));
     const run = (fn) => () => { view.focus(); fn(); };
+    const locked = app.locked;
     const items = [
       ...(link ? [
         { label: "Open link", icon: "OpenLink", run: () => app.openLink(link.href) },
-        { label: "Edit link", icon: "Edit", run: () => app.editLink(link) },
-        { label: "Remove link", icon: "Unlink", run: run(() => view.dispatch(view.state.tr.removeMark(link.from, link.to, schema.marks.link))) },
+        ...(locked ? [] : [
+          { label: "Edit link", icon: "Edit", run: () => app.editLink(link) },
+          { label: "Remove link", icon: "Unlink", run: run(() => view.dispatch(view.state.tr.removeMark(link.from, link.to, schema.marks.link))) }
+        ]),
         { type: "sep" }
       ] : []),
-      { label: "Cut", icon: "Copy", kbd: "Mod-X", disabled: !hasSel, run: run(() => document.execCommand("cut")) },
+      ...(locked ? [] : [{ label: "Cut", icon: "Copy", kbd: "Mod-X", disabled: !hasSel, run: run(() => document.execCommand("cut")) }]),
       { label: "Copy", icon: "Copy", kbd: "Mod-C", disabled: !hasSel, run: run(() => document.execCommand("copy")) },
-      { label: "Paste", icon: "Import", kbd: "Mod-V", run: () => paste(false) },
-      { label: "Paste as plain text", icon: "Text", kbd: "Mod-Shift-V", run: () => paste(true) },
+      ...(locked ? [] : [
+        { label: "Paste", icon: "Import", kbd: "Mod-V", run: () => paste(false) },
+        { label: "Paste as plain text", icon: "Text", kbd: "Mod-Shift-V", run: () => paste(true) }
+      ]),
       { type: "sep" },
-      { label: "Select all", icon: "Preview", kbd: "Mod-A", run: run(() => view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)))) },
-      ...(hasSel ? [{ type: "sep" }, { label: "Bold", icon: "Bold", kbd: "Mod-B", run: run(() => C.toggleBold(view.state, view.dispatch)) }, { label: "Italic", icon: "Italic", kbd: "Mod-I", run: run(() => C.toggleItalic(view.state, view.dispatch)) }, { label: "Link…", icon: "Link", kbd: "Mod-K", run: () => app.editLink() }] : [])
+      { label: "Select all", icon: "Preview", kbd: "Mod-A", run: () => selectAll() },
+      { type: "sep" },
+      { label: locked ? "Unlock to edit" : "Lock (view only)", icon: locked ? "Unlock" : "Lock", kbd: "Mod-Shift-L", run: () => app.toggleLock() },
+      ...(hasSel && !locked ? [{ type: "sep" }, { label: "Bold", icon: "Bold", kbd: "Mod-B", run: run(() => C.toggleBold(view.state, view.dispatch)) }, { label: "Italic", icon: "Italic", kbd: "Mod-I", run: run(() => C.toggleItalic(view.state, view.dispatch)) }, { label: "Link…", icon: "Link", kbd: "Mod-K", run: () => app.editLink() }] : [])
     ];
     const m = buildMenu(items, { onRun: () => rec.close("run"), width: 230 });
     const rec = openPopover(m.el, { rect: { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY, width: 0, height: 0 }, side: "bottom", align: "start", gap: 2, focus: false });
@@ -735,6 +819,7 @@ export async function boot() {
   app.view = view;
   window.__editor = { view, app, store, FolderBackend, LibraryBackend, getMarkdown: () => getMarkdown(view) };
   applyDocSettings();
+  applyLock();
   setupDrop();
   setupContextMenu();
   // App shortcuts that must work while focus is outside the editor (toolbar, body, the find panel)
@@ -747,6 +832,9 @@ export async function boot() {
     else if (k === "o") { e.preventDefault(); app.openFiles(); }
     else if (k === "p") { e.preventDefault(); app.exportAs("pdf"); }
     else if (k === "f" && !e.altKey && !e.target.closest?.(".find-panel")) { e.preventDefault(); openFind(view); }
+    else if (k === "l" && e.shiftKey && !e.altKey) { e.preventDefault(); app.toggleLock(); }
+    // a locked editor has no focus to select within, so Select all is done here (not inside text fields)
+    else if (k === "a" && !e.shiftKey && !e.altKey && app.locked && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) { e.preventDefault(); selectAll(); }
   });
   // Data safety: the draft is written at once when the tab is hidden, closed or frozen, instead of
   // after the usual pause in typing.
@@ -773,12 +861,15 @@ export async function boot() {
   // Drafts cleared by earlier versions were stored as "null"; remove those leftovers.
   for (const k of localKeys("draft:")) if (load(k, undefined) === null) saveLocal(k, null);
   $("#scroller").addEventListener("mousedown", (e) => {
-    // clicking the empty page below the text puts the caret at the end
-    if (e.target.id === "scroller" || e.target.id === "page") {
-      e.preventDefault();
-      view.focus();
-      view.dispatch(view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)).scrollIntoView());
-    }
+    // Clicking the empty page below the text puts the caret at the end. Only a left click on the page
+    // itself, below the last block, counts. It must not fire for the scrollbar (which belongs to
+    // #scroller, so grabbing it used to throw the view to the end of the document), for the margins
+    // beside the page, or for the gaps beside and above the text.
+    if (app.locked || e.button !== 0 || e.target.id !== "page") return;
+    if (e.clientY <= view.dom.getBoundingClientRect().bottom) return;
+    e.preventDefault();
+    view.focus();
+    view.dispatch(view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)).scrollIntoView());
   });
   window.addEventListener("beforeunload", (e) => { if (doc.dirty && doc.path) { e.preventDefault(); e.returnValue = ""; } });
 

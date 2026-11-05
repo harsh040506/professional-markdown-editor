@@ -233,8 +233,9 @@ function createPanel(view) {
 
   function show(replace) {
     open = true;
-    withReplace = !!replace;
+    withReplace = !!replace && view.editable; // a locked document can be searched, not changed
     el.hidden = false;
+    expand.hidden = !view.editable;
     replaceRow.hidden = !withReplace;
     expand.classList.toggle("is-on", withReplace);
     expand.setAttribute("aria-expanded", String(withReplace));
@@ -246,6 +247,7 @@ function createPanel(view) {
     if (!open) return;
     const st = findKey.getState(v.state);
     if (!st.open) { open = false; el.hidden = true; return; }
+    if (expand.hidden === v.editable) show(withReplace); // locked or unlocked while the panel is open
     const n = st.matches.length;
     error.textContent = st.error ? "Invalid pattern: " + st.error : "";
     el.classList.toggle("has-error", !!st.error);

@@ -49,7 +49,7 @@ It is built for people who write things that have to leave the editor looking ri
 <td width="50%" valign="top">
 
 ### Write on the page
-There is no separate Markdown view. Type `#`, `-`, `[ ]`, `>` or three backticks and the block appears; select text for a formatting bar; press `/` for every block. Underneath it is plain `.md` that reads back **exactly** as you wrote it (a test enforces the round trip).
+There is no separate Markdown view. Type `#`, `-`, `[ ]`, `>` or three backticks and the block appears; select text for a formatting bar; press `/` for every block. Underneath it is plain `.md` that reads back **exactly** as you wrote it (a test enforces the round trip). The lock button in the toolbar turns the page into a read-only view, so you can read, search and copy without changing anything by accident.
 
 </td>
 <td width="50%" valign="top">
@@ -207,6 +207,7 @@ The host only ever serves files. After the page has loaded there is no network t
 | Move block up · down | <kbd>Alt</kbd>+<kbd>↑</kbd> · <kbd>↓</kbd> | <kbd>⌥</kbd>+<kbd>↑</kbd> · <kbd>↓</kbd> |
 | Bold · Italic · Link | <kbd>Ctrl</kbd>+<kbd>B</kbd> · <kbd>I</kbd> · <kbd>K</kbd> | <kbd>⌘</kbd>+<kbd>B</kbd> · <kbd>I</kbd> · <kbd>K</kbd> |
 | Export PDF | <kbd>Ctrl</kbd>+<kbd>P</kbd> | <kbd>⌘</kbd>+<kbd>P</kbd> |
+| Lock · unlock (view only) | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> |
 | Every shortcut | <kbd>Ctrl</kbd>+<kbd>/</kbd> | <kbd>⌘</kbd>+<kbd>/</kbd> |
 
 ## Browser support
@@ -231,6 +232,7 @@ The app has no analytics, no cookies, no accounts and no calls home. Fonts, math
 Ideas that fit the "no server" rule, roughly in order. Open an issue to nudge one up.
 
 - [x] Find and replace
+- [x] Lock: a read-only view mode
 - [ ] Table of contents block and outline sidebar
 - [ ] Footnotes and reference-style links
 - [ ] Import from `.docx`

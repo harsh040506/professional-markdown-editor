@@ -15,7 +15,7 @@ Markdown shortcuts turn into formatting as you type: \`#\` and a space for a hea
 - [x] Format with the selection bar or shortcuts
 - [ ] Export to PDF, Word or HTML when you are done
 
-> Tip: press Ctrl+/ (or ⌘/ on a Mac) to see every keyboard shortcut.
+> Tip: press Ctrl+/ (or ⌘/ on a Mac) to see every keyboard shortcut. To read without changing anything by accident, lock the page with the padlock in the toolbar (Ctrl+Shift+L).
 
 ## Your documents
 

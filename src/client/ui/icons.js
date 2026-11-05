@@ -20,7 +20,7 @@ import {
   InsertRowUpIcon, InsertRowDownIcon, InsertColumnLeftIcon, InsertColumnRightIcon, RowDeleteIcon,
   ColumnDeleteIcon, ListCollapseIcon, TextSubscriptIcon, TextSuperscriptIcon, FileImportIcon,
   ArrowHorizontalIcon, Settings02Icon, FunctionIcon, Layout2RowIcon, PlusSignIcon, Note01Icon, MinusSignIcon,
-  Clock01Icon
+  Clock01Icon, SquareLock02Icon, SquareUnlock02Icon
 } from "@hugeicons/core-free-icons";
 
 // App icon names -> Hugeicons definitions. Names describe the use ("Export", "History"), not the drawing.
@@ -43,7 +43,8 @@ const SET = {
   RowBelow: InsertRowDownIcon, ColLeft: InsertColumnLeftIcon, ColRight: InsertColumnRightIcon,
   RowDelete: RowDeleteIcon, ColDelete: ColumnDeleteIcon, Details: ListCollapseIcon, Sub: TextSubscriptIcon,
   Sup: TextSuperscriptIcon, Import: FileImportIcon, Width: ArrowHorizontalIcon, Settings: Settings02Icon,
-  Header: Layout2RowIcon, Markdown: Note01Icon, History: Clock01Icon
+  Header: Layout2RowIcon, Markdown: Note01Icon, History: Clock01Icon,
+  Lock: SquareLock02Icon, Unlock: SquareUnlock02Icon
 };
 
 // Hugeicons definitions use camelCase attribute names; SVG markup needs the hyphenated ones.

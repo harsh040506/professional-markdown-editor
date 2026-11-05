@@ -129,9 +129,9 @@ export class CodeBlockView {
     this.previewBtn.replaceChildren(svg(prev ? "Code" : "Preview", 15));
     if (prev) this.renderDiagram();
     else if (mode === "code" && this.isMermaid()) {
-      // put the caret in the code so it can be edited straight away
+      // put the caret in the code so it can be edited straight away (nothing to put it in when locked)
       const pos = this.getPos();
-      if (pos != null) {
+      if (pos != null && this.view.editable) {
         const tr = this.view.state.tr.setSelection(TextSelection.create(this.view.state.doc, pos + 1));
         this.view.dispatch(tr); this.view.focus();
       }
@@ -151,6 +151,7 @@ export class CodeBlockView {
   // Language menu with a search box. A search with no match offers "Use “…”", so any fence language
   // can be set, including ones without highlighting.
   pickLanguage() {
+    if (!this.view.editable) return;
     const current = normalizeLang(this.node.attrs.language);
     const input = h("input", { class: "input menu-filter", type: "text", placeholder: "Search languages", spellcheck: "false", autocomplete: "off" });
     const items = [{ label: "Auto-detect", value: "", checked: !current }, ...LANGUAGES.map(([v, l]) => ({ label: l, value: v, keywords: v, checked: v === current }))];
@@ -317,7 +318,7 @@ export class MathInlineView {
     this.dom.addEventListener("click", (e) => {
       e.preventDefault();
       const pos = this.getPos();
-      if (pos != null) openMathEditor(this.view, pos, { anchor: this.dom });
+      if (pos != null && this.view.editable) openMathEditor(this.view, pos, { anchor: this.dom });
     });
   }
   update(node) {
@@ -355,6 +356,7 @@ export class MathBlockView {
     this.render.innerHTML = mathHTML(this.node.attrs.tex, true);
   }
   open() {
+    if (!this.view.editable) return;
     if (this.editor) { this.ta.focus(); return; }
     const pos = this.getPos();
     if (pos == null) return;
@@ -427,7 +429,7 @@ export class TaskItemView {
     this.box.addEventListener("mousedown", (e) => e.preventDefault());
     this.box.addEventListener("click", () => {
       const pos = this.getPos();
-      if (pos == null) return;
+      if (pos == null || !this.view.editable) return; // a locked document keeps its checkboxes
       this.view.dispatch(this.view.state.tr.setNodeMarkup(pos, null, { checked: !this.node.attrs.checked }));
     });
     this.contentDOM = h("div", { class: "task-body" });

@@ -1,6 +1,7 @@
 /**
- * Small behaviour plugins: placeholder text in empty blocks, a guaranteed trailing paragraph, and a
- * Markdown-aware clipboard (copy gives Markdown as plain text; pasting Markdown text gives formatting).
+ * Small behaviour plugins: placeholder text in empty blocks, a guaranteed trailing paragraph, the lock
+ * (view mode) and a Markdown-aware clipboard (copy gives Markdown as plain text; pasting Markdown text
+ * gives formatting).
  */
 import { Plugin, PluginKey } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
@@ -53,6 +54,26 @@ export function trailingParagraphPlugin() {
       const last = state.doc.lastChild;
       if (last && last.type === N.paragraph) return null;
       return state.tr.insert(state.doc.content.size, N.paragraph.create()).setMeta("addToHistory", false);
+    }
+  });
+}
+
+/* ---------- lock (view mode) ---------- */
+/**
+ * While app.locked is true the document cannot change. The editor is also made non-editable
+ * (editor.js), so there is no caret and no typing; this plugin is the backstop for everything that
+ * dispatches changes directly: toolbar commands, node-view buttons, find and replace, undo/redo,
+ * restoring a draft or version. Transactions that only move the selection or fold sections still pass.
+ *
+ * `lockBypass` (a transaction meta) lets the app itself prepare a freshly loaded document, e.g.
+ * repairing uneven table rows in createState, while locked.
+ */
+export function lockPlugin(app) {
+  return new Plugin({
+    filterTransaction(tr) {
+      if (!app.locked || !tr.docChanged) return true;
+      const root = tr.getMeta("appendedTransaction");
+      return !!(tr.getMeta("lockBypass") || (root && root.getMeta("lockBypass")));
     }
   });
 }

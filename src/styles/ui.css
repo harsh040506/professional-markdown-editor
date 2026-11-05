@@ -312,6 +312,17 @@ textarea.input { height: auto; padding: 8px 10px; line-height: 1.5; resize: none
 .ProseMirror .details-summary { cursor: text; }
 
 /* print never uses the app chrome */
+/* ---------- locked (view only) ---------- */
+/* The editor is not editable here; make that visible: no text cursor over the page, no empty-block hints, checkboxes and
+   language labels that look inert. Following links, folding sections and copying still work, so those keep their cursors. */
+.page.is-locked { cursor: default; }
+.is-locked .ProseMirror { cursor: auto; caret-color: transparent; }
+.is-locked .ProseMirror .is-empty::before { content: none; }
+.is-locked .doc-body li.task-item > .task-check, .is-locked .code-lang, .is-locked .math-inline, .is-locked .math-render { cursor: default; }
+.is-locked .doc-body a { cursor: pointer; }
+.tb-lock.is-on { color: var(--warning-text); }
+.tb-lock.is-on:hover:not(:disabled) { color: var(--warning-text); }
+
 @media print { .toolbar, .word-count, #layer, .toasts { display: none !important; } body { overflow: visible; } .scroller { overflow: visible; } }
 .ProseMirror:focus-visible { box-shadow: none; }
 .ProseMirror .math-inline.is-pending { font-family: var(--font-mono); font-size: .85em; color: var(--text-3); }

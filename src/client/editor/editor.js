@@ -19,7 +19,7 @@ import { parseMarkdown, serializeMarkdown } from "../markdown.js";
 import { buildInputRules, buildKeymap } from "./keys.js";
 import { highlightPlugin } from "./highlight-plugin.js";
 import { detailsPlugin, revealSelection } from "./details-plugin.js";
-import { placeholderPlugin, trailingParagraphPlugin, clipboardPlugin } from "./plugins.js";
+import { placeholderPlugin, trailingParagraphPlugin, clipboardPlugin, lockPlugin } from "./plugins.js";
 import { slashPlugin, selectionBarPlugin, linkBarPlugin, tableControlsPlugin, tableNormalizePlugin } from "./ui-plugins.js";
 import { nodeViews, openMathEditor } from "./nodeviews.js";
 import { findPlugin } from "./find-plugin.js";
@@ -41,6 +41,7 @@ import { findPlugin } from "./find-plugin.js";
 export function createState(markdown, app) {
   let doc = parseMarkdown(markdown);
   const plugins = [
+    lockPlugin(app),
     slashPlugin(app),
     buildInputRules(),
     ...buildKeymap(app),
@@ -61,7 +62,7 @@ export function createState(markdown, app) {
   ];
   let state = EditorState.create({ doc, plugins });
   const fix = fixTables(state);
-  if (fix) state = state.apply(fix.setMeta("addToHistory", false));
+  if (fix) state = state.apply(fix.setMeta("addToHistory", false).setMeta("lockBypass", true));
   return state;
 }
 
@@ -73,6 +74,8 @@ export function createState(markdown, app) {
  * buttons; app.onSelectionChange), opens the TeX editor for a newly inserted empty equation, and
  * expands collapsed sections that the selection moved into (revealSelection), except when the
  * selection came from a mouse click (meta "pointer"), where expanding would move the clicked text.
+ * While app.locked is set the view is not editable and lockPlugin refuses document changes; a refused
+ * transaction leaves the state unchanged, so it is dropped here without notifying the shell.
  *
  * Tables use prosemirror-tables' TableView with a 48px minimum column width.
  *
@@ -85,9 +88,13 @@ export function createEditor(mount, markdown, app) {
   const view = new EditorView(mount, {
     state: createState(markdown, app),
     nodeViews: { ...nodeViews, table: (node) => new TableView(node, 48) },
+    // View mode: app.locked makes the document read-only (see lockPlugin). Re-read by view.setProps({}).
+    editable: () => !app.locked,
     attributes: { class: "doc-body", spellcheck: "true", "aria-label": "Document", role: "textbox", "aria-multiline": "true" },
     dispatchTransaction(tr) {
-      const state = view.state.apply(tr);
+      const prev = view.state;
+      const state = prev.apply(tr);
+      if (state === prev) return; // a plugin refused the transaction (locked document)
       view.updateState(state);
       if (tr.docChanged) app.onDocChange(tr);
       if (tr.selectionSet || tr.docChanged) app.onSelectionChange(state);

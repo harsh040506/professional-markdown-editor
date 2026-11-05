@@ -273,6 +273,71 @@ Forty-two.
   check("the print page turns into a real PDF", pdf.subarray(0, 4).toString() === "%PDF" && pdf.length > 15000, String(pdf.length));
   await pdfPage.close();
 
+  /* ---------- scrolling and the lock ---------- */
+  await page.close();
+  page = await newPage();
+  await page.goto(url, { waitUntil: "load" });
+  await ready(page);
+  const longDoc = Array.from({ length: 120 }, (_, i) => `## Section ${i}\n\nParagraph ${i} with a [link](https://example.com).\n\n- [ ] task ${i}\n`).join("\n");
+  await openText(page, longDoc, "long.md");
+  const scrollTop = () => page.evaluate(() => document.querySelector("#scroller").scrollTop);
+  const scrollTo = async (n) => { await page.evaluate((n) => { document.querySelector("#scroller").scrollTo(0, n); }, n); await sleep(200); };
+  const editableNow = () => page.evaluate(() => document.querySelector(".ProseMirror").getAttribute("contenteditable"));
+  await scrollTo(1500);
+  await page.mouse.click(60, 300); await sleep(300);
+  check("clicking the blank margin beside the page does not jump to the end", (await scrollTop()) === 1500, String(await scrollTop()));
+  const gutter = await page.evaluate(() => ({ x: document.querySelector("#editor").getBoundingClientRect().left - 10 }));
+  await page.mouse.click(gutter.x, 300); await sleep(300);
+  check("clicking the page gutter does not jump to the end", (await scrollTop()) === 1500, String(await scrollTop()));
+  await scrollTo(1e6);
+  const below = await page.evaluate(() => { const r = document.querySelector("#editor").getBoundingClientRect(); return { x: r.left + 100, y: Math.min(innerHeight - 20, r.bottom + 60) }; });
+  await page.mouse.click(below.x, below.y); await sleep(300);
+  check("clicking below the last line still puts the cursor at the end", await page.evaluate(() => { const { view } = window.__editor; return view.state.selection.to >= view.state.doc.content.size - 3; }));
+
+  await scrollTo(800);
+  const unlockedMd = await md(page);
+  await page.click("#btn-lock"); await sleep(300);
+  check("the lock makes the document read-only", (await editableNow()) === "false" && await page.$eval("#btn-lock", (b) => b.getAttribute("aria-pressed") === "true"));
+  await page.mouse.click(640, 400); await page.keyboard.type("hello"); await page.keyboard.press("Backspace");
+  check("typing does nothing while locked", (await md(page)) === unlockedMd);
+  check("changes sent to the editor are refused while locked", await page.evaluate(() => { const { view } = window.__editor; const before = view.state.doc; view.dispatch(view.state.tr.insertText("X", 1)); return view.state.doc.eq(before); }));
+  check("the editing buttons are disabled while locked", await page.evaluate(() => { const b = [...document.querySelectorAll("#toolbar .edit-only"), document.querySelector("#btn-undo")]; return b.length >= 5 && b.every((x) => x.disabled); }));
+  await page.mouse.click(640, 400, { button: "right" }); await sleep(200);
+  const lockedMenu = await page.evaluate(() => [...document.querySelectorAll(".menu [role=menuitem]")].map((e) => e.textContent.trim()));
+  check("the right-click menu offers no Cut or Paste while locked", lockedMenu.length > 0 && !lockedMenu.some((t) => /^(Cut|Paste)/.test(t)) && lockedMenu.some((t) => t.startsWith("Unlock")), lockedMenu.join("|"));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => { document.querySelector(".task-check").click(); });
+  check("checkboxes do not toggle while locked", (await md(page)) === unlockedMd);
+  await page.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(u); }; });
+  const visibleLink = await page.evaluate(() => { // a link currently on screen (the page is scrolled down)
+    const a = [...document.querySelectorAll(".doc-body a")].find((x) => { const r = x.getBoundingClientRect(); return r.top > 60 && r.bottom < innerHeight - 10; });
+    const r = a.getBoundingClientRect(); return { x: r.left + 3, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(visibleLink.x, visibleLink.y);
+  await sleep(200);
+  check("a link opens with a plain click while locked, and the editor stays", await page.evaluate(() => window.__opened.length === 1 && window.__opened[0].startsWith("https://example.com") && location.href.startsWith("http://127.0.0.1")));
+  await page.keyboard.down("Control"); await page.keyboard.press("f"); await page.keyboard.up("Control"); await sleep(200);
+  check("find works while locked, without the replace row", await page.evaluate(() => !document.querySelector(".find-panel").hidden && document.querySelector(".find-replace-row").hidden));
+  await page.keyboard.press("Escape");
+  await page.reload({ waitUntil: "load" }); await ready(page); await sleep(300);
+  check("the lock is remembered after a reload", (await editableNow()) === "false");
+  await page.keyboard.down("Control"); await page.keyboard.down("Shift"); await page.keyboard.press("l"); await page.keyboard.up("Shift"); await page.keyboard.up("Control"); await sleep(300);
+  check("Ctrl+Shift+L unlocks the document", (await editableNow()) === "true");
+  await page.evaluate(() => window.__editor.view.focus());
+  await page.keyboard.type("ABC"); await sleep(200);
+  check("typing works again after unlocking", (await md(page)).includes("ABC"));
+
+  /* restoring a saved draft keeps the reading position instead of jumping to the bottom */
+  await page.evaluate(async (t) => {
+    const { store, app } = window.__editor;
+    await store.write("long.md", t, null, true);
+    localStorage.setItem("mde:draft:" + store.id + ":long.md", JSON.stringify({ markdown: t + "\n\nextra paragraph\n", at: Date.now(), base: null }));
+    await app.openPath("long.md", { skipConfirm: true });
+  }, longDoc);
+  await sleep(600); await scrollTo(1500);
+  await clickText(page, "Restore", ".toasts button, .toast button"); await sleep(400);
+  check("restoring a draft applies it without scrolling away", (await md(page)).includes("extra paragraph") && Math.abs((await scrollTop()) - 1500) < 5, String(await scrollTop()));
+
   /* ---------- offline ---------- */
   await page.close();
   page = await newPage();

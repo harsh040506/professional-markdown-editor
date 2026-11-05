@@ -216,6 +216,6 @@ export const SHORTCUTS = [
     ["Next match (in the page)", "F3 / Mod-G"], ["Match case · whole word · regex", "Alt-C / Alt-W / Alt-R"], ["Replace all", "Mod-Enter"]
   ] },
   { group: "File", items: [
-    ["Save", "Mod-S"], ["Open", "Mod-O"], ["Export PDF", "Mod-P / Mod-Shift-P"], ["Undo", "Mod-Z"], ["Redo", "Mod-Shift-Z"], ["Shortcuts", "Mod-/"]
+    ["Save", "Mod-S"], ["Open", "Mod-O"], ["Export PDF", "Mod-P / Mod-Shift-P"], ["Undo", "Mod-Z"], ["Redo", "Mod-Shift-Z"], ["Lock / unlock (view only)", "Mod-Shift-L"], ["Shortcuts", "Mod-/"]
   ] }
 ];
