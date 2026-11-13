@@ -11,7 +11,7 @@
 ![Works Offline](https://img.shields.io/badge/works-offline-1e754f.svg)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-b56959.svg)](CONTRIBUTING.md)
 
-**A WYSIWYG Markdown editor that lives in a browser tab.**<br>
+**A WYSIWYG Markdown Editor that lives in a browser tab.**<br>
 Math, diagrams and tables as you type. Export to PDF, Word (with real equations) and HTML.<br>
 No account. No server. No tracking. Your files never leave your computer.
 
