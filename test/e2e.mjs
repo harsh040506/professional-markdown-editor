@@ -70,7 +70,7 @@ try {
   let page = await newPage();
   await page.goto(url, { waitUntil: "load" });
   await ready(page);
-  check("the app starts and shows the welcome document", (await page.$eval(".ProseMirror h1", (e) => e.textContent)).startsWith("Welcome"));
+  check("the app starts and shows the initial document", (await page.$eval(".ProseMirror h1", (e) => e.textContent)).startsWith("System Commands"));
   await page.waitForFunction(() => document.querySelectorAll(".katex").length >= 2, { timeout: 20000 }).catch(() => {});
   check("math is drawn with KaTeX", (await page.$$(".katex")).length >= 2);
   await page.waitForSelector(".diagram svg", { timeout: 20000 });

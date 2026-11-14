@@ -883,8 +883,8 @@ export async function boot() {
   }
   if (!doc.path && !want) {
     if (untitled && untitled.markdown) setDocument(untitled.markdown, { path: null, savedMarkdown: "" });
-    else setDocument(SAMPLE, { path: null, name: "Welcome.md", savedMarkdown: null });
-  } else if (!doc.path && !untitled) setDocument(SAMPLE, { path: null, name: "Welcome.md", savedMarkdown: null });
+    else setDocument(SAMPLE, { path: null, name: "System Commands (Emacs Edition).md", savedMarkdown: null });
+  } else if (!doc.path && !untitled) setDocument(SAMPLE, { path: null, name: "System Commands (Emacs Edition).md", savedMarkdown: null });
 
   if ("launchQueue" in window) {
     window.launchQueue.setConsumer(async (launch) => {
